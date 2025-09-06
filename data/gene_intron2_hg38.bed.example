@@ -1,0 +1,4 @@
+chr1	1000000	1000800	intron2	0	+
+
+# Replace with the exact intron-2 coordinates for your transcript in hg38.
+# Columns: chrom, start(0-based), end(0-based, exclusive), name, score, strand

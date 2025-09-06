@@ -1,0 +1,39 @@
+alphagenome:
+  # Environment variable name that stores the AlphaGenome API key.
+  api_key_env: ALPHAGENOME_API_KEY 
+  # AIzaSyAYG6ARkF8VnyzCANSdnfWn9R-b26o-aB0
+  # Optional override of the service address (usually leave empty).
+  address: null
+  # AlphaGenome model sequence context width (must be supported by the service).
+  # Supported: 2048, 16384, 131072, 524288, 1048576
+  sequence_length: 2048
+  # Retries for RPC calls
+  retries: 3
+  # Batch size for internal iteration (does not change server batching semantics)
+  batch_size: 25
+
+scoring:
+  # Modalities to request from the server for predictions and scoring.
+  # Supported keys: splicing, rna
+  modalities: ["splicing", "rna", "tss"]
+  # Variant-centered aggregation window (bp) for CenterMaskScorer
+  # Must be one of the supported widths for the CenterMask scorer.
+  # Typical allowed values include: 501, 2001, 10001, 100001, 200001 (None means full context).
+  variant_window_nt: 501
+  # Optional list of ontology CURIEs (e.g., UBERON:0002048) to restrict outputs
+  tissues: []
+
+io:
+  out_dir: ag_out
+  make_html: true
+
+buffers:
+  donor_min_nt: 120
+  branchpoint_window_nt:
+    start: 18
+    end: 40
+  acceptor_min_nt: 120
+
+scan:
+  stride_nt: 25
+  max_candidates: 200
