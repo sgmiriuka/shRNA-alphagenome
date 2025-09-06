@@ -34,5 +34,5 @@ buffers:
   acceptor_min_nt: 120
 
 scan:
-  stride_nt: 25
+  stride_nt: 10
   max_candidates: 200

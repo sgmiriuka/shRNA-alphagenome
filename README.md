@@ -12,7 +12,7 @@ This repository provides a command‑line pipeline for evaluating potential geno
 - ranks sites by minimal predicted disruption, and
 - produces per‑candidate plots plus an HTML report.
 
-The tools are generic: they accept any interval (not only introns) and any cassette length. AlphaGenome runs remotely and requires an API key; all requests are variant‑centred with a configurable sequence context and aggregation window.
+Originally, the purpose was to insert an shRNA in an intron. However, the tools are generic: they accept any interval (not only introns) and any cassette length. AlphaGenome runs remotely and requires an API key; all requests are variant‑centred with a configurable sequence context and aggregation window.
 
 Components
 ----------
