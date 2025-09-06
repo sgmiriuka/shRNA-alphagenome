@@ -21,7 +21,12 @@ def _load_arrays_npz(path: Path):
 
 
 def _plot_track_panel(values: np.ndarray, x: np.ndarray | None, title: str, color: str, out_path: Path):
-    plt.figure(figsize=(8, 3))
+    fig = plt.figure(figsize=(8, 3))
+    # Use constrained layout for more reliable spacing
+    try:
+        fig.set_constrained_layout(True)
+    except Exception:
+        pass
     if x is None:
         x = np.arange(len(values))
     plt.plot(x, values, color=color, alpha=0.9)
@@ -30,10 +35,9 @@ def _plot_track_panel(values: np.ndarray, x: np.ndarray | None, title: str, colo
         cx = x[len(x)//2]
         plt.axvline(cx, color='k', linestyle='--', linewidth=0.8)
     plt.title(title)
-    plt.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(out_path, dpi=150)
-    plt.close()
+    plt.close(fig)
 
 
 def _plot_track_three(ref: np.ndarray, alt: np.ndarray, x: np.ndarray | None, base_title: str, base_out_prefix: Path):
@@ -49,6 +53,10 @@ def _plot_track_three(ref: np.ndarray, alt: np.ndarray, x: np.ndarray | None, ba
 def _plot_track_three_panel(ref: np.ndarray, alt: np.ndarray, x: np.ndarray | None, base_title: str, panel_out_path: Path):
     delta = alt - ref
     fig, axes = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
+    try:
+        fig.set_constrained_layout(True)
+    except Exception:
+        pass
     if x is None:
         x = np.arange(len(ref))
     # REF
@@ -65,7 +73,6 @@ def _plot_track_three_panel(ref: np.ndarray, alt: np.ndarray, x: np.ndarray | No
         cx = x[len(x)//2]
         for ax in axes:
             ax.axvline(cx, color='k', linestyle='--', linewidth=0.8)
-    fig.tight_layout()
     panel_out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(panel_out_path, dpi=150)
     plt.close(fig)
@@ -123,11 +130,14 @@ def _plot_sashimi_three_from_json(junc_json_path: Path, base_title: str, base_ou
     # Plot separate PNGs
     def _save(ax_plot, js, suffix, title):
         fig, ax = plt.subplots(1, 1, figsize=(10, 3))
+        try:
+            fig.set_constrained_layout(True)
+        except Exception:
+            pass
         ag_plot.sashimi_plot(js, ax=ax)
         if interval:
             ax.set_xlim([interval[0], interval[1]])
         ax.set_title(title)
-        fig.tight_layout()
         out = base_out_prefix.with_name(base_out_prefix.name + f"_{suffix}.png")
         out.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(out, dpi=150)
@@ -167,6 +177,10 @@ def _plot_sashimi_three_panel_from_json(junc_json_path: Path, base_title: str, p
     delta_js = to_junctions([(s,e,st,abs(m_alt.get((s,e,st),0.0)-m_ref.get((s,e,st),0.0))) for (s,e,st) in keys])
 
     fig, axes = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
+    try:
+        fig.set_constrained_layout(True)
+    except Exception:
+        pass
     ag_plot.sashimi_plot(ref_js, ax=axes[0])
     axes[0].set_title(f"{base_title} REF")
     ag_plot.sashimi_plot(delta_js, ax=axes[1])
@@ -176,7 +190,6 @@ def _plot_sashimi_three_panel_from_json(junc_json_path: Path, base_title: str, p
     if interval:
         for ax in axes:
             ax.set_xlim([interval[0], interval[1]])
-    fig.tight_layout()
     panel_out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(panel_out_path, dpi=150)
     plt.close(fig)
@@ -184,7 +197,32 @@ def _plot_sashimi_three_panel_from_json(junc_json_path: Path, base_title: str, p
 
 def _render_html(scores_csv: Path, plots_root: Path, out_html: Path):
     df = pd.read_csv(scores_csv)
-    df_sorted = df.sort_values('rank')
+    df_sorted = df.sort_values('rank').copy()
+
+    # Compute which images exist to avoid broken links
+    def has(path: Path) -> bool:
+        try:
+            return path.exists()
+        except Exception:
+            return False
+
+    exist_cols = {
+        'has_splicing_panel': [],
+        'has_rna_panel': [],
+        'has_cage_panel': [],
+        'has_procap_panel': [],
+        'has_gene_bar': [],
+    }
+    for _, r in df_sorted.iterrows():
+        rank = int(r['rank'])
+        cand = r['candidate_id']
+        exist_cols['has_splicing_panel'].append(has(plots_root / f"{rank}_{cand}_splicing_panel.png"))
+        exist_cols['has_rna_panel'].append(has(plots_root / f"{rank}_{cand}_rna_panel.png"))
+        exist_cols['has_cage_panel'].append(has(plots_root / f"{rank}_{cand}_cage_panel.png"))
+        exist_cols['has_procap_panel'].append(has(plots_root / f"{rank}_{cand}_procap_panel.png"))
+        exist_cols['has_gene_bar'].append(has(plots_root / f"{rank}_{cand}_rna_gene_lfc_bar.png"))
+    for k, v in exist_cols.items():
+        df_sorted[k] = v
 
     env = jinja2.Environment(autoescape=True)
     tmpl = env.from_string(
@@ -210,34 +248,33 @@ def _render_html(scores_csv: Path, plots_root: Path, out_html: Path):
       <h2>#{{ '%02d'|format(r['rank']) }} — {{ r['candidate_id'] }}</h2>
       <small>Composite: {{ '%.4f'|format(r['composite']) }} | Splicing: {{ '%.4f'|format(r['splicing'] or 0.0) }} | RNA(local): {{ '%.4f'|format(r['rna'] or 0.0) }} | RNA(gene): {{ '%.4f'|format(r.get('rna_gene', 0.0) or 0.0) }} | TSS: {{ '%.4f'|format(r.get('tss', 0.0) or 0.0) }}</small>
       <div class="row">
+        {% if r['has_splicing_panel'] %}
         <div>
           <img class="thumb" src="{{ plots_root }}/{{ r['rank'] }}_{{ r['candidate_id'] }}_splicing_panel.png" alt="splicing_panel" />
         </div>
+        {% endif %}
+        {% if r['has_rna_panel'] %}
         <div>
           <img class="thumb" src="{{ plots_root }}/{{ r['rank'] }}_{{ r['candidate_id'] }}_rna_panel.png" alt="rna_panel" />
         </div>
+        {% endif %}
       </div>
       <div class="row">
-        <div>
-          <img class="thumb" src="{{ plots_root }}/{{ r['rank'] }}_{{ r['candidate_id'] }}_rna_ref.png" alt="rna_ref" />
-        </div>
-        <div>
-          <img class="thumb" src="{{ plots_root }}/{{ r['rank'] }}_{{ r['candidate_id'] }}_rna_delta.png" alt="rna_delta" />
-        </div>
-        <div>
-          <img class="thumb" src="{{ plots_root }}/{{ r['rank'] }}_{{ r['candidate_id'] }}_rna_alt.png" alt="rna_alt" />
-        </div>
-      </div>
-      <div class="row">
+        {% if r['has_cage_panel'] %}
         <div>
           <img class="thumb" src="{{ plots_root }}/{{ r['rank'] }}_{{ r['candidate_id'] }}_cage_panel.png" alt="cage_panel" />
         </div>
+        {% endif %}
+        {% if r['has_procap_panel'] %}
         <div>
           <img class="thumb" src="{{ plots_root }}/{{ r['rank'] }}_{{ r['candidate_id'] }}_procap_panel.png" alt="procap_panel" />
         </div>
+        {% endif %}
+        {% if r['has_gene_bar'] %}
         <div>
           <img class="thumb" src="{{ plots_root }}/{{ r['rank'] }}_{{ r['candidate_id'] }}_rna_gene_lfc_bar.png" alt="rna_gene_lfc" />
         </div>
+        {% endif %}
       </div>
     </div>
     {% endfor %}
@@ -327,16 +364,26 @@ def main(argv: List[str] | None = None) -> None:
                 vals = data.get('scores')
                 names = data.get('track_names')
                 if vals is not None:
-                    # take top 12 by absolute value
-                    idx = np.argsort(-np.abs(vals))[:12]
-                    vals_top = vals[idx]
-                    names_top = names[idx] if names is not None else [f'track_{i}' for i in idx]
-                    fig, ax = plt.subplots(1, 1, figsize=(10, 3.5))
+                    vals_arr = np.asarray(vals, dtype=float).ravel()
+                    # Rank by absolute value; treat NaN as 0 for ranking
+                    order_base = np.nan_to_num(np.abs(vals_arr), nan=0.0)
+                    if order_base.size == 0:
+                        # Nothing to plot
+                        continue
+                    idx = np.argsort(-order_base)[:12]
+                    vals_top = vals_arr[idx]
+                    if names is not None and len(names) == len(vals_arr):
+                        names_arr = np.asarray(names, dtype=object).ravel()
+                        names_top = names_arr[idx]
+                    else:
+                        names_top = [f'track_{i}' for i in idx]
+                    fig, ax = plt.subplots(1, 1, figsize=(10, 3.6))
+                    # Use manual spacing to avoid layout engine warnings with rotated labels
+                    fig.subplots_adjust(left=0.08, right=0.98, top=0.88, bottom=0.35)
                     ax.bar(range(len(vals_top)), vals_top, color="#9467bd")
                     ax.set_title(f"{cand} Gene-level RNA LFC (per track)")
                     ax.set_xticks(range(len(vals_top)))
                     ax.set_xticklabels([str(n) for n in names_top], rotation=45, ha='right', fontsize=8)
-                    fig.tight_layout()
                     outp = plots_dir / f"{rank}_{cand}_rna_gene_lfc_bar.png"
                     fig.savefig(outp, dpi=150)
                     plt.close(fig)
