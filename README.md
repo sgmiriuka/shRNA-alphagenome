@@ -45,7 +45,7 @@ Ensure you have an API key in env var `ALPHAGENOME_API_KEY` (or `ALPHA_GENOME_AP
 ```
 # (Optional) Create intron-2 BED from a transcript ID (hg38)
 python -m ag_pipeline.cli TranscriptToBED \
-  --transcript ENST00000335295 \
+  --transcript ENST00000325495 \
   --intron-index 2 \
   --out data/gene_intron2_hg38.bed
 
