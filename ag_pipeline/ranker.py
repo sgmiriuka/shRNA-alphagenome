@@ -10,10 +10,29 @@ from .config import AppConfig
 
 
 def compute_composite(scores_df: pd.DataFrame) -> pd.DataFrame:
+    """Compute composite disruption scores and rank candidates.
+
+    Aggregates per-candidate scores by modality (splicing, rna, etc.) and computes
+    a weighted composite score for ranking. Lower composite scores indicate better candidates.
+
+    Args:
+        scores_df: DataFrame with columns candidate_id, scorer, primary, quantile_mean, pos.
+
+    Returns:
+        DataFrame: Ranked candidates with modality scores and composite.
+    """
     # scores_df has rows per (candidate_id, scorer) with columns primary, quantile_mean
     # We will split scorers by modality keywords and aggregate.
     # Heuristic mapping
     def modality_of(s: str) -> str:
+        """Map scorer name to modality category.
+
+        Args:
+            s: Scorer name string.
+
+        Returns:
+            str: Modality name (splicing, rna, rna_gene, tss, tf, histone, other).
+        """
         s = s.lower()
         if "splice" in s:
             return "splicing"
@@ -26,7 +45,7 @@ def compute_composite(scores_df: pd.DataFrame) -> pd.DataFrame:
         # TF/ChIP: common tokens in scorer repr or output names
         if ("tf_binding" in s) or ("chip_tf" in s) or (" tf " in f" {s} ") or ("tf(" in s) or ("tf)" in s):
             return "tf"
-        # Histone marks: look for generic keyword or common H3 tokens
+        # Histone marks: look for generic keyword or common H3K* tokens
         if ("histone" in s) or ("chip_histone" in s) or ("h3k" in s):
             return "histone"
         return "other"
@@ -78,6 +97,14 @@ def compute_composite(scores_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def main(argv: List[str] | None = None) -> None:
+    """Rank insertion candidates by predicted disruption scores.
+
+    Reads raw scores from AlphaGenomeScorer output, computes composite scores,
+    and writes ranked candidates to CSV.
+
+    Args:
+        argv: Command-line arguments. If None, uses sys.argv.
+    """
     ap = argparse.ArgumentParser(
         prog="Ranker",
         description="Rank sites by minimal predicted disruption (splicing-driven).",

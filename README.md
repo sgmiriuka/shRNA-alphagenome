@@ -323,3 +323,35 @@ This is the main output produced by Ranker at `ag_out/candidates.csv`. It contai
 - 1‑based position: `pos` follows the AlphaGenome variant schema as a 1‑based coordinate.
 - Pure insertion: `ref` is empty and `alt` contains the full inserted sequence in the TSV. Conceptually, the cassette is inserted at the breakpoint without deleting reference bases.
 - Model context: Scoring uses the model context (`alphagenome.sequence_length`) centered on `pos`; variant‑centered scorers aggregate over `scoring.variant_window_nt`.
+
+## Code Documentation
+
+This codebase follows PEP 257 docstring conventions for Python documentation. All public functions, classes, and methods include comprehensive docstrings with:
+
+- **Purpose**: Clear description of what the function/class does
+- **Parameters**: Detailed parameter descriptions with types
+- **Returns**: Return value descriptions with types
+- **Raises**: Exceptions that may be raised
+- **Examples**: Usage examples where applicable
+
+Key modules and their documentation:
+
+- **`ag_pipeline/cli.py`**: Command-line interface with subcommands for each pipeline stage
+- **`ag_pipeline/config.py`**: Configuration dataclasses for all settings
+- **`ag_pipeline/variant_builder.py`**: Candidate position generation within genomic intervals
+- **`ag_pipeline/scorer.py`**: AlphaGenome API integration and scoring
+- **`ag_pipeline/ranker.py`**: Composite score calculation and candidate ranking
+- **`ag_pipeline/reporter.py`**: Plot generation and HTML report creation
+- **`ag_pipeline/transcript_bed.py`**: Transcript exon fetching and BED file generation
+
+Inline comments are added to complex logic sections for better code readability.
+
+## API Reference
+
+For programmatic use, import the modules directly:
+
+```python
+from ag_pipeline import variant_builder, scorer, ranker, reporter
+```
+
+Each module's `main()` function accepts command-line style arguments as a list for easy integration.

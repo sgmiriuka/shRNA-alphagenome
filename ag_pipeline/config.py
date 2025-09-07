@@ -10,6 +10,15 @@ import yaml
 
 @dataclasses.dataclass
 class AlphaGenomeConfig:
+    """Configuration for AlphaGenome API client settings.
+
+    Attributes:
+        api_key_env: Environment variable name containing the AlphaGenome API key.
+        address: Optional custom service address override.
+        sequence_length: Model context width in nucleotides (must be supported by the service).
+        retries: Number of retries for RPC calls.
+        batch_size: Batch size for internal iteration (does not affect server batching).
+    """
     api_key_env: str = "ALPHAGENOME_API_KEY"
     address: Optional[str] = None
     sequence_length: int = 2048
@@ -19,6 +28,13 @@ class AlphaGenomeConfig:
 
 @dataclasses.dataclass
 class ScoringConfig:
+    """Configuration for scoring modalities and variant-centered aggregation.
+
+    Attributes:
+        modalities: List of modalities to request from AlphaGenome (e.g., splicing, rna, tss, tf, histone).
+        variant_window_nt: CenterMask aggregation window width in nucleotides.
+        tissues: Optional list of ontology CURIEs to filter tracks.
+    """
     modalities: List[str] = dataclasses.field(default_factory=lambda: ["splicing", "rna"])  # noqa: E501
     variant_window_nt: int = 400
     tissues: List[str] = dataclasses.field(default_factory=list)
@@ -26,6 +42,14 @@ class ScoringConfig:
 
 @dataclasses.dataclass
 class BuffersConfig:
+    """Configuration for splice-signal buffer distances in introns.
+
+    Attributes:
+        donor_min_nt: Minimum distance from 5' donor splice site.
+        branchpoint_window_nt_start: Start of branchpoint exclusion window upstream of 3' acceptor.
+        branchpoint_window_nt_end: End of branchpoint exclusion window upstream of 3' acceptor.
+        acceptor_min_nt: Minimum distance from 3' acceptor splice site.
+    """
     donor_min_nt: int = 120
     branchpoint_window_nt_start: int = 18
     branchpoint_window_nt_end: int = 40
@@ -34,12 +58,29 @@ class BuffersConfig:
 
 @dataclasses.dataclass
 class ScanConfig:
+    """Configuration for scanning parameters in VariantBuilder.
+
+    Attributes:
+        stride_nt: Step size in nucleotides between candidate insertion positions.
+        max_candidates: Maximum number of candidate positions to emit.
+    """
     stride_nt: int = 25
     max_candidates: int = 80
 
 
 @dataclasses.dataclass
 class IOConfig:
+    """Configuration for input/output file paths.
+
+    Attributes:
+        out_dir: Base directory for all outputs.
+        make_html: Whether to generate HTML reports.
+        candidates_tsv: Path to output candidates TSV from VariantBuilder.
+        raw_parquet: Path to output raw predictions/scores Parquet from AlphaGenomeScorer.
+        scores_csv: Path to output ranked scores CSV from Ranker.
+        plots_dir: Directory for per-candidate plot images from Reporter.
+        report_html: Path to output HTML report from Reporter.
+    """
     out_dir: Path = Path("ag_out")
     make_html: bool = True
     # Common paths (can be overridden per CLI):
@@ -52,12 +93,28 @@ class IOConfig:
 
 @dataclasses.dataclass
 class InputsConfig:
+    """Configuration for input file paths.
+
+    Attributes:
+        intron_bed: Path to the BED file defining the genomic interval to scan.
+        cassette: Path to the FASTA file containing the insertion sequence.
+    """
     intron_bed: Optional[Path] = None
     cassette: Optional[Path] = None
 
 
 @dataclasses.dataclass
 class AppConfig:
+    """Main application configuration aggregating all sub-configurations.
+
+    Attributes:
+        alphagenome: AlphaGenome API client settings.
+        scoring: Scoring modalities and variant window settings.
+        buffers: Splice-signal buffer distances for introns.
+        scan: Scanning parameters for candidate generation.
+        io: Input/output file path configurations.
+        inputs: Input file path configurations.
+    """
     alphagenome: AlphaGenomeConfig = dataclasses.field(default_factory=AlphaGenomeConfig)
     scoring: ScoringConfig = dataclasses.field(default_factory=ScoringConfig)
     buffers: BuffersConfig = dataclasses.field(default_factory=BuffersConfig)
@@ -67,6 +124,18 @@ class AppConfig:
 
     @staticmethod
     def from_yaml(path: str | os.PathLike[str]) -> "AppConfig":
+        """Load application configuration from a YAML file.
+
+        Args:
+            path: Path to the YAML configuration file.
+
+        Returns:
+            AppConfig: Parsed configuration object.
+
+        Raises:
+            FileNotFoundError: If the YAML file does not exist.
+            yaml.YAMLError: If the YAML is malformed.
+        """
         with open(path, "r") as f:
             raw = yaml.safe_load(f) or {}
 
@@ -133,6 +202,10 @@ class AppConfig:
         )
 
     def ensure_out_dirs(self) -> None:
+        """Ensure that output directories exist, creating them if necessary.
+
+        Creates the main output directory and plots subdirectory.
+        """
         self.io.out_dir.mkdir(parents=True, exist_ok=True)
         # Ensure plots directory
         plots_dir = self.io.plots_dir if self.io.plots_dir else (self.io.out_dir / "plots")

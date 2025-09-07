@@ -15,6 +15,14 @@ from . import transcript_bed as tb
 
 
 def _load_arrays_npz(path: Path):
+    """Load numpy arrays from .npz file for plotting.
+
+    Args:
+        path: Path to the .npz file.
+
+    Returns:
+        dict or None: Dictionary with 'x', 'ref', 'alt', 'delta', 'quantiles' arrays, or None if file doesn't exist.
+    """
     if not path.exists():
         return None
     data = np.load(path, allow_pickle=True)
@@ -22,6 +30,15 @@ def _load_arrays_npz(path: Path):
 
 
 def _plot_track_panel(values: np.ndarray, x: np.ndarray | None, title: str, color: str, out_path: Path):
+    """Plot a single track panel (REF, ALT, or DELTA).
+
+    Args:
+        values: Array of values to plot.
+        x: X-coordinates (genomic positions). If None, uses range(len(values)).
+        title: Plot title.
+        color: Line color.
+        out_path: Path to save the PNG.
+    """
     fig = plt.figure(figsize=(8, 3))
     # Use constrained layout for more reliable spacing
     try:
@@ -197,6 +214,13 @@ def _plot_sashimi_three_panel_from_json(junc_json_path: Path, base_title: str, p
 
 
 def _render_html(scores_csv: Path, plots_root: Path, out_html: Path):
+    """Generate HTML report with ranked candidates and plots.
+
+    Args:
+        scores_csv: Path to ranked scores CSV from Ranker.
+        plots_root: Directory containing per-candidate plot images.
+        out_html: Path to write the HTML report.
+    """
     df = pd.read_csv(scores_csv)
     df_sorted = df.sort_values('rank').copy()
 
@@ -345,6 +369,18 @@ def _plot_gene_structure_with_spikes(
     out_path: Path,
     transcript_id: str | None = None,
 ):
+    """Plot gene structure with candidate insertion spikes.
+
+    Args:
+        exons: List of exon dictionaries with 'start', 'end'.
+        chrom: Chromosome name.
+        strand: Strand (1 for +, -1 for -).
+        intron_start0: 0-based intron start.
+        intron_end0: 0-based intron end.
+        ranked: DataFrame of ranked candidates.
+        out_path: Path to save the plot.
+        transcript_id: Optional transcript ID for title.
+    """
     # Prepare coordinates (use 1-based inclusive for display)
     exon_intervals = [(int(e.get('start')), int(e.get('end'))) for e in exons]
     # Sort by genomic coordinate for plotting left→right
@@ -476,6 +512,14 @@ def _plot_gene_structure_with_spikes(
 
 
 def main(argv: List[str] | None = None) -> None:
+    """Generate plots and HTML report for ranked candidates.
+
+    Reads ranked scores and predictions, generates per-candidate plots,
+    and creates an HTML summary report.
+
+    Args:
+        argv: Command-line arguments. If None, uses sys.argv.
+    """
     ap = argparse.ArgumentParser(
         prog="Reporter",
         description="Plot every prediction and build an HTML summary.",

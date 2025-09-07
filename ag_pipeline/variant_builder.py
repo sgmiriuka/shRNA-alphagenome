@@ -10,6 +10,14 @@ from .config import AppConfig
 
 @dataclass
 class Intron:
+    """Represents a genomic intron interval.
+
+    Attributes:
+        chrom: Chromosome name.
+        start0: 0-based inclusive start position.
+        end0: 0-based exclusive end position.
+        strand: Strand (+, -, or .).
+    """
     chrom: str
     start0: int  # 0-based, inclusive
     end0: int    # 0-based, exclusive
@@ -17,10 +25,26 @@ class Intron:
 
     @property
     def width(self) -> int:
+        """Calculate intron width in nucleotides.
+
+        Returns:
+            int: Width of the intron.
+        """
         return self.end0 - self.start0
 
 
 def read_bed_first_interval(path: Path) -> Intron:
+    """Read the first interval from a BED file.
+
+    Args:
+        path: Path to BED file.
+
+    Returns:
+        Intron: Parsed intron object.
+
+    Raises:
+        ValueError: If no valid intervals found.
+    """
     with open(path, "r") as f:
         for line in f:
             if not line.strip() or line.startswith("#"):
@@ -35,6 +59,17 @@ def read_bed_first_interval(path: Path) -> Intron:
 
 
 def read_fasta_single(path: Path) -> str:
+    """Read sequence from a single-entry FASTA file.
+
+    Args:
+        path: Path to FASTA file.
+
+    Returns:
+        str: Uppercase sequence string.
+
+    Raises:
+        ValueError: If sequence is empty.
+    """
     seq = []
     with open(path, "r") as f:
         for line in f:
@@ -57,6 +92,19 @@ def generate_candidate_positions(
     acceptor_min_nt: int,
     stride: int,
 ) -> List[int]:
+    """Generate candidate insertion positions within an intron, respecting splice buffers.
+
+    Args:
+        intron: Intron interval.
+        donor_min_nt: Minimum distance from donor.
+        bp_start: Branchpoint window start.
+        bp_end: Branchpoint window end.
+        acceptor_min_nt: Minimum distance from acceptor.
+        stride: Step size between positions.
+
+    Returns:
+        List of 1-based candidate positions.
+    """
     # Allowed region is intron.start + donor_min .. intron.end - acceptor_min
     start_allowed = intron.start0 + donor_min_nt
     end_allowed = intron.end0 - acceptor_min_nt
@@ -94,6 +142,15 @@ def write_candidates_tsv(
     alt_seq: str,
     max_candidates: int,
 ) -> None:
+    """Write candidate positions to TSV file.
+
+    Args:
+        out_path: Output TSV path.
+        chrom: Chromosome name.
+        positions_1based: List of 1-based positions.
+        alt_seq: Insertion sequence.
+        max_candidates: Maximum number to write.
+    """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w") as out:
         out.write("candidate_id\tchrom\tpos\tref\talt\n")
@@ -103,6 +160,14 @@ def write_candidates_tsv(
 
 
 def main(argv: List[str] | None = None) -> None:
+    """Generate candidate insertion positions within a genomic interval.
+
+    Reads intron BED and cassette FASTA, generates positions respecting buffers,
+    and writes candidates to TSV.
+
+    Args:
+        argv: Command-line arguments. If None, uses sys.argv.
+    """
     p = argparse.ArgumentParser(
         prog="VariantBuilder",
         description=(

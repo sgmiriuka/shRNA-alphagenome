@@ -66,6 +66,15 @@ def _fetch_exons_from_gtf(gtf_path: Path, transcript_id: str) -> tuple[str, int,
 
 
 def _sort_exons(exons: List[dict], strand: int) -> List[dict]:
+    """Sort exons by rank or genomic position.
+
+    Args:
+        exons: List of exon dictionaries with 'start', 'end', 'rank'.
+        strand: Strand (1 for +, -1 for -).
+
+    Returns:
+        Sorted list of exons.
+    """
     if all('rank' in e and isinstance(e['rank'], int) for e in exons):
         return sorted(exons, key=lambda e: e['rank'])
     # fallback by genomic order, strand-aware
@@ -113,6 +122,13 @@ def compute_intron_bed_line(transcript_id: str, intron_index: int = 2, *, gtf: P
 
 
 def main(argv: List[str] | None = None) -> None:
+    """Create BED line for a transcript's intron.
+
+    Fetches exon data and computes intron coordinates, writing to BED file.
+
+    Args:
+        argv: Command-line arguments. If None, uses sys.argv.
+    """
     ap = argparse.ArgumentParser(
         prog="TranscriptToBED",
         description="Create intron BED line for a transcript (default intron 2).",

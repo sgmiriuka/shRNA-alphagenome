@@ -15,6 +15,17 @@ import re
 
 
 def _load_candidates(candidates_tsv: Path) -> pd.DataFrame:
+    """Load candidate insertion positions from TSV file.
+
+    Args:
+        candidates_tsv: Path to TSV file with candidate_id, chrom, pos, ref, alt columns.
+
+    Returns:
+        pd.DataFrame: DataFrame of candidates.
+
+    Raises:
+        ValueError: If required columns are missing.
+    """
     df = pd.read_csv(candidates_tsv, sep="\t")
     # Normalize columns
     expect = ["candidate_id", "chrom", "pos", "ref", "alt"]
@@ -46,6 +57,15 @@ def _resolve_api_key(cfg: AppConfig) -> str:
 
 
 def _build_client(api_key: str, address: Optional[str]):
+    """Create AlphaGenome API client.
+
+    Args:
+        api_key: AlphaGenome API key.
+        address: Optional custom service address.
+
+    Returns:
+        AlphaGenome client instance.
+    """
     # Lazy import to avoid hard dependency unless used
     from alphagenome.models import dna_client
 
@@ -53,6 +73,14 @@ def _build_client(api_key: str, address: Optional[str]):
 
 
 def _ag_output_types(modalities: Iterable[str]):
+    """Map modalities to AlphaGenome output types.
+
+    Args:
+        modalities: List of modality names (e.g., splicing, rna, tss).
+
+    Returns:
+        List of AlphaGenome OutputType enums.
+    """
     from alphagenome.models import dna_output as out
 
     def _maybe_outputs(names: List[str]):
@@ -117,6 +145,15 @@ def _coerce_center_mask_width(requested: int) -> int:
 
 
 def _variant_scorers(modalities: Iterable[str], width: int):
+    """Create variant scorers for each modality.
+
+    Args:
+        modalities: List of modality names.
+        width: CenterMask aggregation window width.
+
+    Returns:
+        List of variant scorer instances.
+    """
     from alphagenome.models import variant_scorers as vs
     from alphagenome.models import dna_output as out
 
@@ -199,6 +236,16 @@ def _variant_scorers(modalities: Iterable[str], width: int):
 
 
 def _interval_around(chrom: str, pos_1based: int, width: int):
+    """Create genomic interval centered around a position.
+
+    Args:
+        chrom: Chromosome name.
+        pos_1based: 1-based genomic position.
+        width: Interval width in nucleotides.
+
+    Returns:
+        AlphaGenome Interval object (0-based half-open).
+    """
     from alphagenome.data import genome
     # Center the interval around the 1-based position.
     # genome.Interval is 0-based half-open
@@ -208,6 +255,16 @@ def _interval_around(chrom: str, pos_1based: int, width: int):
 
 
 def _make_variant(chrom: str, pos_1based: int, alt: str):
+    """Create AlphaGenome Variant object for insertion.
+
+    Args:
+        chrom: Chromosome name.
+        pos_1based: 1-based insertion position.
+        alt: Alternate sequence (insertion).
+
+    Returns:
+        AlphaGenome Variant object.
+    """
     from alphagenome.data import genome
     return genome.Variant(chromosome=chrom, position=int(pos_1based), reference_bases="", alternate_bases=alt)
 
@@ -220,11 +277,38 @@ def _save_arrays_npz(base_dir: Path, candidate_id: str, label: str, *,
                      quantiles: Optional[np.ndarray] = None) -> Path:
     base_dir.mkdir(parents=True, exist_ok=True)
     fpath = base_dir / f"{candidate_id}_{label}.npz"
+    """Save track data arrays to compressed NPZ file.
+
+    Args:
+        base_dir: Directory to save in.
+        candidate_id: Candidate identifier.
+        label: Modality label (e.g., 'rna', 'tf').
+        x: X-coordinates array.
+        ref_vals: Reference values array.
+        alt_vals: Alternate values array.
+        delta_vals: Delta values array.
+        quantiles: Quantiles array.
+
+    Returns:
+        Path to saved file.
+    """
+    base_dir.mkdir(parents=True, exist_ok=True)
+    fpath = base_dir / f"{candidate_id}_{label}.npz"
     np.savez_compressed(fpath, x=x, ref=ref_vals, alt=alt_vals, delta=delta_vals, quantiles=quantiles)
+    return fpath
     return fpath
 
 
 def _trackdata_to_arrays(td, aggregate_axis: int = -1) -> Tuple[np.ndarray, np.ndarray]:
+    """Convert AlphaGenome track data to arrays for plotting.
+
+    Args:
+        td: AlphaGenome track data object.
+        aggregate_axis: Axis to aggregate over (default -1 for tracks).
+
+    Returns:
+        Tuple of (x_coords, aggregated_values). Returns (x, None) if no tracks.
+    """
     # Returns (x_coords, aggregated_values)
     # td.values shape: [bins, n_tracks] (or multi-d)
     values = td.values
@@ -243,6 +327,14 @@ def _trackdata_to_arrays(td, aggregate_axis: int = -1) -> Tuple[np.ndarray, np.n
 
 
 def _junctiondata_to_list(jd) -> List[Tuple]:
+    """Convert AlphaGenome junction data to list for plotting.
+
+    Args:
+        jd: AlphaGenome junction data object.
+
+    Returns:
+        List of (start, end, strand, k) tuples, where k is aggregated across tracks.
+    """
     # Returns list of (start, end, strand, k) with k aggregated across tracks
     # jd.values shape: [n_junctions, n_tracks]
     vals = jd.values
@@ -260,6 +352,14 @@ def _junctiondata_to_list(jd) -> List[Tuple]:
 
 
 def main(argv: List[str] | None = None) -> None:
+    """Score insertion candidates using AlphaGenome API.
+
+    Reads candidates, queries AlphaGenome for predictions and scores,
+    saves arrays for plotting, and writes aggregated scores to Parquet.
+
+    Args:
+        argv: Command-line arguments. If None, uses sys.argv.
+    """
     ap = argparse.ArgumentParser(
         prog="AlphaGenomeScorer",
         description="Batch-score candidates via AlphaGenome (splicing ± RNA) with a variant-centered scorer.",
@@ -327,10 +427,10 @@ def main(argv: List[str] | None = None) -> None:
         if out.OutputType.SPLICE_JUNCTIONS in outputs and var_pred.reference.splice_junctions is not None:
             ref_j = var_pred.reference.splice_junctions
             alt_j = var_pred.alternate.splice_junctions
-            # Aggregate k across tracks for storage; reporter can re-plot per track later if desired
+            # Aggregate junction k values across tracks for storage; reporter can re-plot per track later if desired
             ref_list = _junctiondata_to_list(ref_j)
             alt_list = _junctiondata_to_list(alt_j)
-            # Store JSON for junctions to keep shapes small
+            # Store JSON for junctions to keep file sizes small compared to NPZ
             j_path = arrays_dir / f"{cand_id}_splicing_junctions.json"
             with open(j_path, 'w') as f:
                 json.dump({"ref": ref_list, "alt": alt_list, "interval": [interval.start, interval.end]}, f)
@@ -375,9 +475,9 @@ def main(argv: List[str] | None = None) -> None:
         # TF binding (ChIP-TF) aggregate tracks if available
         try:
             from alphagenome.models import dna_output as out
-            # Attempt generic attributes first
+            # Check if any TF-related output types are requested
             if any(hasattr(out.OutputType, n) and getattr(out.OutputType, n) in outputs for n in ("TF_BINDING", "CHIP_TF", "TF")):
-                # Try to resolve attribute names commonly used by the SDK
+                # Try different attribute names used by the SDK for TF data
                 for attr in ("tf_binding", "chip_tf", "tf"):
                     ref_attr = getattr(var_pred.reference, attr, None)
                     alt_attr = getattr(var_pred.alternate, attr, None)
@@ -387,7 +487,7 @@ def main(argv: List[str] | None = None) -> None:
                         if ref_tf_vals is not None and alt_tf_vals is not None:
                             delta_tf = alt_tf_vals - ref_tf_vals
                             _save_arrays_npz(arrays_dir, cand_id, "tf", x=x_tf, ref_vals=ref_tf_vals, alt_vals=alt_tf_vals, delta_vals=delta_tf)
-                        break
+                        break  # Stop after finding the first valid attribute
         except Exception:
             pass
 

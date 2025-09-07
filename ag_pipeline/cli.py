@@ -9,6 +9,17 @@ from .config import AppConfig
 
 
 def main(argv=None):
+    """Main entry point for the AlphaGenome shRNA intron-2 pipeline CLI.
+
+    Parses command-line arguments and dispatches to the appropriate subcommand
+    (VariantBuilder, AlphaGenomeScorer, Ranker, Reporter, TranscriptToBED, or Full pipeline).
+
+    Args:
+        argv: List of command-line arguments. If None, uses sys.argv.
+
+    Returns:
+        int: Exit code (0 for success, 1 for error).
+    """
     parser = argparse.ArgumentParser(prog="ag", description="AlphaGenome shRNA intron-2 pipeline")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
