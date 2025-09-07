@@ -390,24 +390,42 @@ def _plot_gene_structure_with_spikes(
             val = 1.0 - (rk - rmin) / (rmax - rmin)
         return cmap(val)
 
-    fig, ax = plt.subplots(1, 1, figsize=(12, 3.2))
+    # Single-panel zoomed intron with spikes
+    fig, ax = plt.subplots(1, 1, figsize=(12, 3.8))
     try:
         fig.set_constrained_layout(True)
     except Exception:
         pass
 
-    # Gene baseline
-    ax.hlines(0.2, gene_start, gene_end, color='#888', linewidth=2)
-    # Exon boxes
-    for s, e in exon_intervals:
-        ax.add_patch(plt.Rectangle((s, 0.1), max(e - s, 1), 0.2, facecolor='#444', edgecolor='none'))
+    # Utilities
+    def draw_gene_track(ax_, x0, x1, exons_to_draw, *, y=0.05, exon_h=0.10, color_line="#666", color_exon="#333"):
+        ax_.hlines(y, x0, x1, color=color_line, linewidth=2, zorder=1)
+        for s, e in exons_to_draw:
+            s2 = max(s, x0)
+            e2 = min(e, x1)
+            if e2 > s2:
+                ax_.add_patch(plt.Rectangle((s2, y - exon_h / 2), max(e2 - s2, 1), exon_h,
+                                            facecolor=color_exon, edgecolor='none', zorder=2))
 
-    # Highlight intron region
-    ax.add_patch(plt.Rectangle((intron_start1, 0.05), max(intron_end1 - intron_start1, 1), 0.3, 
-                               facecolor='#1f77b4', alpha=0.1, edgecolor='#1f77b4'))
+    def intersect(a0, a1, b0, b1):
+        return max(a0, b0) < min(a1, b1)
 
-    # Candidate spikes (height scaled by composite: lower/better → taller)
-    # Normalize composite to [0,1] where 1.0 = best (min composite)
+    # Zoom window around intron (±25% intron width)
+    intr_w = max(intron_end1 - intron_start1, 10)
+    pad = max(int(0.25 * intr_w), 50)
+    zoom_x0 = intron_start1 - pad
+    zoom_x1 = intron_end1 + pad
+
+    draw_gene_track(ax, zoom_x0, zoom_x1, [t for t in exon_intervals if intersect(t[0], t[1], zoom_x0, zoom_x1)],
+                    y=0.05, exon_h=0.10, color_line="#666", color_exon="#333")
+
+    # Highlight intron
+    ax.add_patch(
+        plt.Rectangle((intron_start1, 0.0), max(intron_end1 - intron_start1, 1), 0.15,
+                      facecolor='#1f77b4', alpha=0.20, edgecolor='#1f77b4', zorder=0)
+    )
+
+    # Candidate spikes (height scaled by composite; color by rank)
     if comps:
         comp_vals = np.array([c if np.isfinite(c) else np.nan for c in comps], dtype=float)
         if np.all(~np.isfinite(comp_vals)):
@@ -418,33 +436,40 @@ def _plot_gene_structure_with_spikes(
         comp_vals = np.array([])
         cmin = cmax = None
 
-    base_y0 = 0.4
-    min_h = 0.2  # worst → short spike
-    max_h = 0.5  # best → tall spike
+    base_y0 = 0.20
+    min_h = 0.15  # worst → short spike
+    max_h = 0.75  # best → tall spike
     for i, (pos, rk) in enumerate(zip(poses, ranks)):
         col = rank_to_color(rk)
         if cmin is not None and cmax is not None and np.isfinite(comp_vals[i]):
             if cmax == cmin:
                 norm = 1.0
             else:
-                # lower is better → higher height
                 norm = 1.0 - (comp_vals[i] - cmin) / (cmax - cmin)
         else:
-            # Fallback to rank-based height if composite missing
             norm = 1.0 if len(ranks) <= 1 else 1.0 - (rk - min(ranks)) / (max(ranks) - min(ranks) + 1e-9)
         height = min_h + (max_h - min_h) * float(np.clip(norm, 0.0, 1.0))
-        ax.vlines(pos, base_y0, base_y0 + height, colors=[col], linewidth=2)
+        ax.vlines(pos, base_y0, base_y0 + height, colors=[col], linewidth=3, zorder=3)
+
+    # Legend-like guide for color scale (min/max rank)
+    if ranks:
+        rmin, rmax = min(ranks), max(ranks)
+        ax.text(0.01, 0.97, f"Best rank {rmin}", color=rank_to_color(rmin), transform=ax.transAxes,
+                ha='left', va='top', fontsize=10)
+        ax.text(0.25, 0.97, f"Worst rank {rmax}", color=rank_to_color(rmax), transform=ax.transAxes,
+                ha='left', va='top', fontsize=10)
 
     # Aesthetics
-    title_bits = ["Gene structure"]
+    ax.set_xlim(zoom_x0, zoom_x1)
+    ax.set_ylim(0.0, 1.05)
+    ax.set_xlabel("Genomic position (1-based)")
+    ax.set_yticks([])
+    title_bits = ["Intron region candidate spikes"]
     if transcript_id:
         title_bits.append(transcript_id)
     title_bits.append(f"{chrom} ({'+' if strand==1 else '-'})")
     ax.set_title(" — ".join(title_bits))
-    ax.set_xlim(gene_start, gene_end)
-    ax.set_ylim(0.0, 1.0)
-    ax.set_xlabel("Genomic position (1-based)")
-    ax.set_yticks([])
+
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
