@@ -136,16 +136,34 @@ def main(argv: List[str] | None = None) -> None:
     ap.add_argument("--transcript", required=True, help="Ensembl transcript ID, e.g., ENST00000335295")
     ap.add_argument("--intron-index", type=int, default=2, help="Intron index (1-based; intron 2 is between exon 2 and 3)")
     ap.add_argument("--gtf", type=Path, default=None, help="Optional local GTF to parse instead of Ensembl REST")
-    ap.add_argument("--out", type=Path, default=Path("data/gene_intron2_hg38.bed"))
+    # If not provided, we'll auto-build an output filename from the feature name
+    # contained in the BED line (e.g., intron2, exon3, promoter), to stay agnostic
+    # to class and index.
+    ap.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="Output BED path. If omitted, auto-named as data/gene_<feature>_hg38.bed",
+    )
 
     args = ap.parse_args(argv)
     line = compute_intron_bed_line(args.transcript, args.intron_index, gtf=args.gtf)
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    with open(args.out, "w") as f:
+
+    # Build default output name if not provided, using the feature name from the BED line
+    # (4th column). This keeps naming agnostic to class (e.g., intron, exon, promoter)
+    # and index (e.g., intron2, exon5).
+    if args.out is None:
+        parts = line.split("\t")
+        feature = parts[3] if len(parts) >= 4 and parts[3] else "feature"
+        out_path = Path("data") / f"gene_{feature}_hg38.bed"
+    else:
+        out_path = args.out
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "w") as f:
         f.write(line + "\n")
-    print(f"[TranscriptToBED] Wrote {args.out}:\n{line}")
+    print(f"[TranscriptToBED] Wrote {out_path}:\n{line}")
 
 
 if __name__ == "__main__":
     main()
-
