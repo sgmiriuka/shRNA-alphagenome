@@ -1,7 +1,7 @@
 AlphaGenome Variant Insertion Scoring Pipeline
 =============================================
 
-Overview
+## Overview
 --------
 
 This repository provides a command‑line pipeline for evaluating potential genomic insertion sites for a user‑provided DNA cassette using AlphaGenome. Given a genomic interval (BED) and an insertion sequence (FASTA), the pipeline:
@@ -14,7 +14,7 @@ This repository provides a command‑line pipeline for evaluating potential geno
 
 Originally, the purpose was to insert an shRNA in an intron. However, the tools are generic: they accept any interval (not only introns) and any cassette length. AlphaGenome runs remotely and requires an API key; all requests are variant‑centred with a configurable sequence context and aggregation window.
 
-Components
+## Components
 ----------
 
 - VariantBuilder: emits insertion candidates respecting splice-signal buffers
@@ -22,7 +22,7 @@ Components
 - Ranker: ranks by minimal predicted disruption (splicing-driven)
 - Reporter: plots per-candidate figures and builds an HTML report
 
-Quick Start (Conda)
+## Quick Start (Conda)
 ------------------
 
 1) Create and activate the Conda env (installs AlphaGenome via pip inside the env):
@@ -48,8 +48,9 @@ python -m ag_pipeline.cli TranscriptToBED \
   --transcript ENST00000325495 \
   --intron-index 2 \
   --out data/gene_intron2_hg38.bed
+```
 
-One-shot pipeline
+## One-shot pipeline
 -----------------
 
 Run all steps (VariantBuilder → Scorer → Ranker → Reporter) in a single command:
@@ -67,13 +68,15 @@ Notes:
 - If you omit `--buffers/--stride/--max`, they default to values from `ag.yaml`.
 - Outputs default to `data/candidates.tsv`, `ag_out/raw.parquet`, `ag_out/candidates.csv`, and `ag_out/plots` + `ag_out/report.html`.
 
-Individual steps (optional)
+## Individual steps (optional)
 ---------------------------
 
 You can still run each step independently (generic to any interval and cassette length):
 
+
+### Candidates (generic interval)
+
 ```
-# Candidates (generic interval)
 python -m ag_pipeline.cli VariantBuilder \
   --intron-bed data/region.bed \
   --cassette data/insert.fa \
@@ -81,21 +84,30 @@ python -m ag_pipeline.cli VariantBuilder \
   --stride 25 \
   --max 80 \
   --out data/candidates.tsv
+```
 
-# AlphaGenome predictions + scores (now with gene-level RNA and TSS tracks)
+### AlphaGenome predictions + scores (now with gene-level RNA and TSS tracks)
+
+```
 python -m ag_pipeline.cli AlphaGenomeScorer \
   --config ag.yaml \
   --candidates data/candidates.tsv \
   --modalities splicing rna tss tf histone \
   --variant-window 501 \
   --out ag_out/raw.parquet
+```
 
-# Rank
+### Rank
+
+```
 python -m ag_pipeline.cli Ranker \
   --in ag_out/raw.parquet \
   --out ag_out/candidates.csv
+```
 
-# Plots + HTML
+### Plots + HTML
+
+```
 python -m ag_pipeline.cli Reporter \
   --scores ag_out/candidates.csv \
   --pred ag_out/raw.parquet \
@@ -103,7 +115,7 @@ python -m ag_pipeline.cli Reporter \
   --html ag_out/report.html
 ```
 
-Configuration and CLI mapping
+## Configuration and CLI mapping
 -----------------------------
 
 All knobs can be provided either via the config file (`ag.yaml`) or via CLI flags. The Full command reads from `ag.yaml` by default when flags are omitted; individual commands also accept `--config` to use the same defaults.
@@ -197,9 +209,9 @@ New: Gene structure figure with candidate spikes
 Environment
 - Export your API key in the env var named by `alphagenome.api_key_env` (default `ALPHAGENOME_API_KEY`).
 - The code validates CenterMask widths and will coerce unsupported values to nearest supported.
-```
 
-Notes
+
+## Notes
 -----
 
 - The AlphaGenome client uses a 2,048 bp sequence context by default (config: `alphagenome.sequence_length`). The variant-centered `CenterMaskScorer` aggregates over a window defined by `scoring.variant_window_nt`. Use a supported width (e.g., 501, 2001, 10001); the CLI will automatically coerce unsupported values to the nearest allowed width.
@@ -221,16 +233,66 @@ Tip: If you prefer not to activate the env, you can prefix commands with Conda:
 conda run -n ag-shrna python -m ag_pipeline.cli Ranker --in ag_out/raw.parquet --out ag_out/candidates.csv
 ```
 
-Alternative direct module calls (skip unified CLI):
+Direct module entry points (advanced)
+------------------------------------
 
+If you prefer to call the underlying modules directly (skipping the unified `ag_pipeline.cli` wrapper), you can invoke each stage as shown below. These accept the same arguments as their CLI counterparts; use `--config ag.yaml` to inherit defaults where applicable.
+
+VariantBuilder (module)
 ```
-# VariantBuilder
-python -m ag_pipeline.variant_builder --intron-bed ... --cassette ... --buffers 120 18 40 120 --stride 25 --max 80 --out data/candidates.tsv
+python -m ag_pipeline.variant_builder \
+  --intron-bed data/region.bed \
+  --cassette data/insert.fa \
+  --buffers 120 18 40 120 \   # for non‑intronic regions use: 0 0 0 0
+  --stride 25 \
+  --max 80 \
+  --out data/candidates.tsv
+```
+- --intron-bed: BED interval to scan (can be any region, not just introns).
+- --cassette: FASTA with insertion sequence.
+- --buffers DONOR BP_START BP_END ACCEPTOR: Splice-signal exclusion buffers; set to `0 0 0 0` for generic regions.
+- --stride: Step in nucleotides when enumerating candidate breakpoints.
+- --max: Maximum number of candidates to emit.
+- --out: TSV written by this step.
+  Optional: `--focus POS --window N` to keep only candidates within N nt of POS.
 
-# Scorer (with TF + histone)
-python -m ag_pipeline.scorer --config ag.yaml --candidates data/candidates.tsv --modalities splicing rna tss tf histone --variant-window 400 --out ag_out/raw.parquet
+Scorer (module; with optional TF and histone)
+```
+python -m ag_pipeline.scorer \
+  --config ag.yaml \
+  --candidates data/candidates.tsv \
+  --modalities splicing rna tss tf histone \
+  --variant-window 501 \
+  --out ag_out/raw.parquet
+```
+- --config: Provides AlphaGenome client defaults (API key env, sequence_length, tissues).
+- --candidates: Candidates TSV produced by VariantBuilder.
+- --modalities: Any subset of `splicing rna tss tf histone` supported by your AlphaGenome build.
+- --variant-window: CenterMask aggregation width (use a supported value, e.g., 501, 2001, 10001).
+- --out: Long/tidy Parquet with per-scorer aggregates used downstream.
 
-Outputs
+Ranker (module)
+```
+python -m ag_pipeline.ranker \
+  --in ag_out/raw.parquet \
+  --out ag_out/candidates.csv
+```
+- --in: Parquet from Scorer.
+- --out: Ranked CSV with modality scores and composite.
+
+Reporter (module)
+```
+python -m ag_pipeline.reporter \
+  --scores ag_out/candidates.csv \
+  --pred ag_out/raw.parquet \
+  --plots ag_out/plots \
+  --html ag_out/report.html
+```
+- --scores: Ranked CSV from Ranker.
+- --pred: Parquet from Scorer (for plots).
+- --plots/--html: Output locations for images and the HTML report.
+
+## Outputs
 -------
 
 - `data/candidates.tsv`: Raw candidates from VariantBuilder (one row per candidate site). Columns: `candidate_id, chrom, pos, ref, alt`. See notes on coordinate conventions below.
@@ -241,7 +303,7 @@ Outputs
 - `ag_out/arrays/*.npz` and `ag_out/arrays/*_splicing_junctions.json`: Arrays used for plotting and splice junction metadata.
 - Optional: `ag_out/candidates_scored.tsv` written by AlphaGenomeScorer merges `data/candidates.tsv` with the wide per‑candidate scores for convenience.
 
-Candidates CSV (ranked scores)
+### Candidates CSV (ranked scores)
 ------------------------------
 
 This is the main output produced by Ranker at `ag_out/candidates.csv`. It contains one row per candidate with modality scores and a composite used for ordering.
@@ -257,7 +319,7 @@ This is the main output produced by Ranker at `ag_out/candidates.csv`. It contai
 - histone: Mean absolute predicted change across histone marks if available (CenterMask or selected H3K* aggregates). Lower is better.
 - composite: Splicing‑weighted sum used for ranking: `splicing + 0.2·rna + 0.2·rna_gene + 0.1·tss + 0.1·tf + 0.1·histone`. Lower composite → better rank.
 
-Coordinate conventions (applies to `data/candidates.tsv` and `ag_out/candidates.csv`)
+##### Coordinate conventions (applies to `data/candidates.tsv` and `ag_out/candidates.csv`)
 - 1‑based position: `pos` follows the AlphaGenome variant schema as a 1‑based coordinate.
 - Pure insertion: `ref` is empty and `alt` contains the full inserted sequence in the TSV. Conceptually, the cassette is inserted at the breakpoint without deleting reference bases.
 - Model context: Scoring uses the model context (`alphagenome.sequence_length`) centered on `pos`; variant‑centered scorers aggregate over `scoring.variant_window_nt`.
