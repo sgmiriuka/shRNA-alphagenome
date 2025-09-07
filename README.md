@@ -230,41 +230,34 @@ python -m ag_pipeline.variant_builder --intron-bed ... --cassette ... --buffers 
 # Scorer (with TF + histone)
 python -m ag_pipeline.scorer --config ag.yaml --candidates data/candidates.tsv --modalities splicing rna tss tf histone --variant-window 400 --out ag_out/raw.parquet
 
-Outputs and Annotations
------------------------
+Outputs
+-------
 
-- Raw per-scorer metrics are saved to `ag_out/raw.parquet`.
-- Arrays used for plotting are stored in `ag_out/arrays/*.npz` and splice junctions in `ag_out/arrays/*_splicing_junctions.json`.
-- An annotated TSV with per-candidate aggregates is saved to `ag_out/candidates_scored.tsv` (merges the original `candidates.tsv` with splicing/RNA/TSS/TF/histone summaries and composite).
+- `data/candidates.tsv`: Raw candidates from VariantBuilder (one row per candidate site). Columns: `candidate_id, chrom, pos, ref, alt`. See notes on coordinate conventions below.
+- `ag_out/raw.parquet`: Long/tidy table with per-candidate, per-scorer aggregated metrics used for ranking.
+- `ag_out/candidates.csv`: Final ranked summary (one row per candidate) with scores per modality and the composite. See “Candidates CSV (ranked scores)” below.
+- `ag_out/plots/`: Per-candidate panels (splicing, RNA; CAGE/PROCAP if enabled; TF/histone if enabled) and gene structure figure when configured.
+- `ag_out/report.html`: HTML report that embeds the ranked table and plots.
+- `ag_out/arrays/*.npz` and `ag_out/arrays/*_splicing_junctions.json`: Arrays used for plotting and splice junction metadata.
+- Optional: `ag_out/candidates_scored.tsv` written by AlphaGenomeScorer merges `data/candidates.tsv` with the wide per‑candidate scores for convenience.
 
-# Ranker
-python -m ag_pipeline.ranker --in ag_out/raw.parquet --out ag_out/candidates.csv
+Candidates CSV (ranked scores)
+------------------------------
 
-# Reporter
-python -m ag_pipeline.reporter --scores ag_out/candidates.csv --pred ag_out/raw.parquet --plots ag_out/plots --html ag_out/report.html
-```
+This is the main output produced by Ranker at `ag_out/candidates.csv`. It contains one row per candidate with modality scores and a composite used for ordering.
 
-Candidates TSV
----------------
+- rank: 1-based rank; 1 = best (lowest predicted disruption).
+- candidate_id: Identifier matching the VariantBuilder output (e.g., `cand0001`).
+- pos: 1‑based genomic insertion breakpoint used for scoring.
+- splicing: Mean absolute predicted splicing disruption around the variant (CenterMask aggregate). Lower is better.
+- rna: Mean absolute predicted local RNA expression change around the variant (CenterMask). Lower is better.
+- rna_gene: Mean absolute gene‑level RNA log fold change (GeneMaskLFC across RNA‑seq tracks). Lower magnitude is better.
+- tss: Mean absolute predicted change in transcription initiation proxies (CAGE/PROCAP; CenterMask). Lower is better.
+- tf: Mean absolute predicted change across TF binding tracks if available (CenterMask). Lower is better.
+- histone: Mean absolute predicted change across histone marks if available (CenterMask or selected H3K* aggregates). Lower is better.
+- composite: Splicing‑weighted sum used for ranking: `splicing + 0.2·rna + 0.2·rna_gene + 0.1·tss + 0.1·tf + 0.1·histone`. Lower composite → better rank.
 
-The pipeline starts from a simple candidates table produced by VariantBuilder. This file is a tab‑separated text file with one row per candidate insertion site.
-
-- candidate_id: Unique ID assigned sequentially (e.g., `cand0001`).
-- chrom: Chromosome/contig name copied from the input BED (e.g., `chr1`).
-- pos: 1‑based genomic coordinate marking the insertion breakpoint used for AlphaGenome scoring.
-- ref: Reference bases replaced by the variant. For pure insertions this is empty.
-- alt: Alternate allele sequence. For insertions, this is the cassette/insert sequence (uppercase), with no deletion from the reference.
-
-Coordinate conventions
+Coordinate conventions (applies to `data/candidates.tsv` and `ag_out/candidates.csv`)
 - 1‑based position: `pos` follows the AlphaGenome variant schema as a 1‑based coordinate.
-- Pure insertion: `ref` is empty and `alt` contains the full inserted sequence. Conceptually, the cassette is inserted at the breakpoint without deleting any reference bases.
-- Interval context: All scoring uses the model context (`alphagenome.sequence_length`) centered around `pos`; variant‑centered scorers use `scoring.variant_window_nt` for aggregation.
-
-Example
-```
-candidate_id	chrom	pos	ref	alt
-cand0005	chr7	5522592		ACGT...TT
-```
-
-Downstream annotations
-- During scoring, the pipeline writes an annotated table `ag_out/candidates_scored.tsv` that merges the original candidates with aggregated effect metrics per modality and the final composite score.
+- Pure insertion: `ref` is empty and `alt` contains the full inserted sequence in the TSV. Conceptually, the cassette is inserted at the breakpoint without deleting reference bases.
+- Model context: Scoring uses the model context (`alphagenome.sequence_length`) centered on `pos`; variant‑centered scorers aggregate over `scoring.variant_window_nt`.
