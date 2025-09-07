@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from .config import AppConfig
+from . import transcript_bed as tb
 
 
 def _load_arrays_npz(path: Path):
@@ -228,6 +229,15 @@ def _render_html(scores_csv: Path, plots_root: Path, out_html: Path):
     for k, v in exist_cols.items():
         df_sorted[k] = v
 
+    # Global gene spikes figure (if present)
+    gene_spikes_rel = None
+    try:
+        p = plots_root / "gene_structure_spikes.png"
+        if p.exists():
+            gene_spikes_rel = os.path.relpath(str(p), start=str(out_html.parent))
+    except Exception:
+        gene_spikes_rel = None
+
     env = jinja2.Environment(autoescape=True)
     tmpl = env.from_string(
         """
@@ -248,6 +258,17 @@ def _render_html(scores_csv: Path, plots_root: Path, out_html: Path):
   </head>
   <body>
     <h1>AlphaGenome Intron-2 shRNA Candidate Report</h1>
+    {% if gene_spikes_img %}
+    <div class="card">
+      <h2>Gene Structure and Candidate Spikes</h2>
+      <div class="row">
+        <div>
+          <img class="thumb" src="{{ gene_spikes_img }}" alt="Gene structure with intron highlight and candidate spikes" />
+          <div class="caption">Exons (boxes), introns (lines). Highlighted intron shows candidate spikes colored green (best) → red (worst) by composite rank.</div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
     {% for _, r in rows.iterrows() %}
     <div class="card">
       <h2>#{{ '%02d'|format(r['rank']) }} — {{ r['candidate_id'] }}</h2>
@@ -308,9 +329,125 @@ def _render_html(scores_csv: Path, plots_root: Path, out_html: Path):
         plots_root_rel = os.path.relpath(str(plots_root), start=str(out_html.parent))
     except Exception:
         plots_root_rel = str(plots_root)
-    html = tmpl.render(rows=df_sorted, plots_root=plots_root_rel)
+    html = tmpl.render(rows=df_sorted, plots_root=plots_root_rel, gene_spikes_img=gene_spikes_rel)
     out_html.parent.mkdir(parents=True, exist_ok=True)
     out_html.write_text(html)
+
+
+def _plot_gene_structure_with_spikes(
+    *,
+    exons: List[dict],
+    chrom: str,
+    strand: int,
+    intron_start0: int,
+    intron_end0: int,
+    ranked: pd.DataFrame,
+    out_path: Path,
+    transcript_id: str | None = None,
+):
+    # Prepare coordinates (use 1-based inclusive for display)
+    exon_intervals = [(int(e.get('start')), int(e.get('end'))) for e in exons]
+    # Sort by genomic coordinate for plotting left→right
+    exon_intervals.sort(key=lambda t: t[0])
+    gene_start = min(s for s, _ in exon_intervals)
+    gene_end = max(e for _, e in exon_intervals)
+
+    intron_start1 = int(intron_start0) + 1
+    intron_end1 = int(intron_end0)
+
+    # Candidate positions (1-based) limited to the highlighted intron region if available
+    poses = []
+    ranks = []
+    comps = []
+    if 'pos' in ranked.columns:
+        for _, r in ranked.iterrows():
+            try:
+                pos = int(r['pos'])
+            except Exception:
+                continue
+            if pos >= intron_start1 and pos <= intron_end1:
+                poses.append(pos)
+                ranks.append(int(r['rank']))
+                try:
+                    comps.append(float(r.get('composite', np.nan)))
+                except Exception:
+                    comps.append(np.nan)
+
+    # Color by rank (green=best → red=worst)
+    cmap = plt.get_cmap('RdYlGn')
+    if ranks:
+        rmin = min(ranks)
+        rmax = max(ranks)
+    else:
+        rmin = 1
+        rmax = 1
+
+    def rank_to_color(rk: int):
+        if rmax == rmin:
+            val = 1.0
+        else:
+            # Normalize so best (lowest rank) → 1.0 (green), worst → 0.0 (red)
+            val = 1.0 - (rk - rmin) / (rmax - rmin)
+        return cmap(val)
+
+    fig, ax = plt.subplots(1, 1, figsize=(12, 3.2))
+    try:
+        fig.set_constrained_layout(True)
+    except Exception:
+        pass
+
+    # Gene baseline
+    ax.hlines(0.2, gene_start, gene_end, color='#888', linewidth=2)
+    # Exon boxes
+    for s, e in exon_intervals:
+        ax.add_patch(plt.Rectangle((s, 0.1), max(e - s, 1), 0.2, facecolor='#444', edgecolor='none'))
+
+    # Highlight intron region
+    ax.add_patch(plt.Rectangle((intron_start1, 0.05), max(intron_end1 - intron_start1, 1), 0.3, 
+                               facecolor='#1f77b4', alpha=0.1, edgecolor='#1f77b4'))
+
+    # Candidate spikes (height scaled by composite: lower/better → taller)
+    # Normalize composite to [0,1] where 1.0 = best (min composite)
+    if comps:
+        comp_vals = np.array([c if np.isfinite(c) else np.nan for c in comps], dtype=float)
+        if np.all(~np.isfinite(comp_vals)):
+            comp_vals = np.full(len(poses), np.nan)
+        cmin = np.nanmin(comp_vals) if np.any(np.isfinite(comp_vals)) else None
+        cmax = np.nanmax(comp_vals) if np.any(np.isfinite(comp_vals)) else None
+    else:
+        comp_vals = np.array([])
+        cmin = cmax = None
+
+    base_y0 = 0.4
+    min_h = 0.2  # worst → short spike
+    max_h = 0.5  # best → tall spike
+    for i, (pos, rk) in enumerate(zip(poses, ranks)):
+        col = rank_to_color(rk)
+        if cmin is not None and cmax is not None and np.isfinite(comp_vals[i]):
+            if cmax == cmin:
+                norm = 1.0
+            else:
+                # lower is better → higher height
+                norm = 1.0 - (comp_vals[i] - cmin) / (cmax - cmin)
+        else:
+            # Fallback to rank-based height if composite missing
+            norm = 1.0 if len(ranks) <= 1 else 1.0 - (rk - min(ranks)) / (max(ranks) - min(ranks) + 1e-9)
+        height = min_h + (max_h - min_h) * float(np.clip(norm, 0.0, 1.0))
+        ax.vlines(pos, base_y0, base_y0 + height, colors=[col], linewidth=2)
+
+    # Aesthetics
+    title_bits = ["Gene structure"]
+    if transcript_id:
+        title_bits.append(transcript_id)
+    title_bits.append(f"{chrom} ({'+' if strand==1 else '-'})")
+    ax.set_title(" — ".join(title_bits))
+    ax.set_xlim(gene_start, gene_end)
+    ax.set_ylim(0.0, 1.0)
+    ax.set_xlabel("Genomic position (1-based)")
+    ax.set_yticks([])
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
 
 
 def main(argv: List[str] | None = None) -> None:
@@ -323,6 +460,10 @@ def main(argv: List[str] | None = None) -> None:
     ap.add_argument("--pred", required=False, type=Path)
     ap.add_argument("--plots", required=False, type=Path)
     ap.add_argument("--html", required=False, type=Path)
+    # Optional: supply transcript (or GTF) to render gene structure
+    ap.add_argument("--transcript", required=False, type=str)
+    ap.add_argument("--gtf", required=False, type=Path)
+    ap.add_argument("--intron-bed", required=False, type=Path)
     args = ap.parse_args(argv)
 
     cfg = AppConfig.from_yaml(args.config) if args.config else AppConfig()
@@ -422,6 +563,39 @@ def main(argv: List[str] | None = None) -> None:
                     plt.close(fig)
             except Exception:
                 pass
+
+    # Optional global gene-structure + spikes plot
+    try:
+        intron_bed_path = Path(args.intron_bed) if args.intron_bed else (cfg.inputs.intron_bed if cfg.inputs.intron_bed else None)
+    except Exception:
+        intron_bed_path = None
+    transcript_id = args.transcript if getattr(args, 'transcript', None) else None
+    gtf_path = Path(args.gtf) if getattr(args, 'gtf', None) else None
+    if transcript_id is not None and intron_bed_path is not None:
+        try:
+            # Fetch exon structures
+            if gtf_path is not None:
+                chrom, strand, exons = tb._fetch_exons_from_gtf(gtf_path, transcript_id)
+            else:
+                chrom, strand, exons = tb._fetch_exons_rest_ensembl(transcript_id)
+            # Read intron BED
+            with open(intron_bed_path, 'r') as f:
+                line = next(l for l in f if l.strip() and not l.startswith('#'))
+            parts = line.rstrip().split('\t')
+            intron_start0 = int(parts[1])
+            intron_end0 = int(parts[2])
+            _plot_gene_structure_with_spikes(
+                exons=exons,
+                chrom=(parts[0] if parts and parts[0] else chrom or ''),
+                strand=int(strand),
+                intron_start0=intron_start0,
+                intron_end0=intron_end0,
+                ranked=ranked,
+                out_path=plots / "gene_structure_spikes.png",
+                transcript_id=transcript_id,
+            )
+        except Exception:
+            pass
 
     if html:
         _render_html(scores, plots, html)

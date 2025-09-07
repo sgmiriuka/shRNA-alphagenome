@@ -40,6 +40,9 @@ def main(argv=None):
     rp.add_argument("--pred", required=True)
     rp.add_argument("--plots", required=True)
     rp.add_argument("--html", required=True)
+    rp.add_argument("--transcript", required=False, help="Optional transcript ID to draw gene structure")
+    rp.add_argument("--gtf", required=False, help="Optional local GTF for exon structure")
+    rp.add_argument("--intron-bed", required=False, help="BED with highlighted intron interval")
 
     # TranscriptToBED
     tb = sub.add_parser("TranscriptToBED", help="Create intron BED from a transcript ID")
@@ -63,6 +66,8 @@ def main(argv=None):
     full.add_argument("--scores-out", default="ag_out/candidates.csv")
     full.add_argument("--plots", default="ag_out/plots")
     full.add_argument("--html", default="ag_out/report.html")
+    full.add_argument("--transcript", required=False, help="Optional transcript ID to draw gene structure")
+    full.add_argument("--gtf", required=False, help="Optional local GTF for exon structure")
 
     args, rest = parser.parse_known_args(argv)
 
@@ -90,7 +95,14 @@ def main(argv=None):
     elif args.cmd == "Ranker":
         ranker.main(["--in", args.inp, "--out", args.out])
     elif args.cmd == "Reporter":
-        reporter.main(["--scores", args.scores, "--pred", args.pred, "--plots", args.plots, "--html", args.html])
+        call = ["--scores", args.scores, "--pred", args.pred, "--plots", args.plots, "--html", args.html]
+        if args.transcript:
+            call.extend(["--transcript", args.transcript])
+        if args.gtf:
+            call.extend(["--gtf", args.gtf])
+        if args.intron_bed:
+            call.extend(["--intron-bed", args.intron_bed])
+        reporter.main(call)
     elif args.cmd == "TranscriptToBED":
         call = ["--transcript", args.transcript, "--intron-index", str(args.intron_index), "--out", args.out]
         if args.gtf:
@@ -139,6 +151,9 @@ def main(argv=None):
             "--pred", args.raw_out,
             "--plots", args.plots,
             "--html", args.html,
+            *( ["--transcript", args.transcript] if getattr(args, 'transcript', None) else [] ),
+            *( ["--gtf", args.gtf] if getattr(args, 'gtf', None) else [] ),
+            "--intron-bed", args.intron_bed,
         ])
     else:
         parser.print_help()

@@ -170,7 +170,22 @@ CLI flags and their config fallbacks:
   - `--pred` ← `io.raw_parquet`
   - `--plots` ← `io.plots_dir`
   - `--html` ← `io.report_html`
-  - Produces per-candidate panels (splicing, RNA, CAGE/PROCAP if enabled, plus TF/histone if enabled) and RNA gene-level LFC bar.
+- Produces per-candidate panels (splicing, RNA, CAGE/PROCAP if enabled, plus TF/histone if enabled) and RNA gene-level LFC bar.
+
+New: Gene structure figure with candidate spikes
+- Reporter can render a gene-wide exon/intron track with the intron-of-interest highlighted and one spike per candidate colored green→red by composite rank (green = best). Provide a transcript ID (or a local GTF) and the intron BED:
+
+  ag Reporter \
+    --scores ag_out/candidates.csv \
+    --pred ag_out/raw.parquet \
+    --plots ag_out/plots \
+    --html ag_out/report.html \
+    --transcript ENST00000325495 \
+    --intron-bed data/gene_intron2_hg38.bed
+
+  - Optional: add --gtf path/to/your.gtf to avoid Ensembl REST.
+  - The figure is saved to ag_out/plots/gene_structure_spikes.png and embedded near the top of the HTML report.
+  - Spike height is scaled by composite score: lower/better composite → taller spike. If composite is missing, height falls back to rank.
 
 - Full:
   - `--config`: Required for defaults.
