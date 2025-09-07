@@ -228,3 +228,28 @@ python -m ag_pipeline.ranker --in ag_out/raw.parquet --out ag_out/candidates.csv
 # Reporter
 python -m ag_pipeline.reporter --scores ag_out/candidates.csv --pred ag_out/raw.parquet --plots ag_out/plots --html ag_out/report.html
 ```
+
+Candidates TSV
+---------------
+
+The pipeline starts from a simple candidates table produced by VariantBuilder. This file is a tab‑separated text file with one row per candidate insertion site.
+
+- candidate_id: Unique ID assigned sequentially (e.g., `cand0001`).
+- chrom: Chromosome/contig name copied from the input BED (e.g., `chr1`).
+- pos: 1‑based genomic coordinate marking the insertion breakpoint used for AlphaGenome scoring.
+- ref: Reference bases replaced by the variant. For pure insertions this is empty.
+- alt: Alternate allele sequence. For insertions, this is the cassette/insert sequence (uppercase), with no deletion from the reference.
+
+Coordinate conventions
+- 1‑based position: `pos` follows the AlphaGenome variant schema as a 1‑based coordinate.
+- Pure insertion: `ref` is empty and `alt` contains the full inserted sequence. Conceptually, the cassette is inserted at the breakpoint without deleting any reference bases.
+- Interval context: All scoring uses the model context (`alphagenome.sequence_length`) centered around `pos`; variant‑centered scorers use `scoring.variant_window_nt` for aggregation.
+
+Example
+```
+candidate_id	chrom	pos	ref	alt
+cand0005	chr7	5522592		ACGT...TT
+```
+
+Downstream annotations
+- During scoring, the pipeline writes an annotated table `ag_out/candidates_scored.tsv` that merges the original candidates with aggregated effect metrics per modality and the final composite score.
