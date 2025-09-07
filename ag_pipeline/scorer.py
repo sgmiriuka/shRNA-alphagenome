@@ -54,6 +54,14 @@ def _build_client(api_key: str, address: Optional[str]):
 
 def _ag_output_types(modalities: Iterable[str]):
     from alphagenome.models import dna_output as out
+
+    def _maybe_outputs(names: List[str]):
+        outs = []
+        for n in names:
+            if hasattr(out.OutputType, n):
+                outs.append(getattr(out.OutputType, n))
+        return outs
+
     selected = []
     for m in modalities:
         m = m.strip().lower()
@@ -63,6 +71,29 @@ def _ag_output_types(modalities: Iterable[str]):
             selected.append(out.OutputType.RNA_SEQ)
         elif m in ("tss", "promoter", "initiation"):
             selected.extend([out.OutputType.CAGE, out.OutputType.PROCAP])
+        elif m in ("tf", "chip_tf", "chip-tf", "tf_binding"):
+            # Try common TF binding output enums; fall back gracefully if none exist.
+            selected.extend(
+                _maybe_outputs([
+                    "TF_BINDING",  # generic TF binding tracks
+                    "CHIP_TF",     # alternative naming
+                    "TF",          # fallback
+                ])
+            )
+            if not selected:
+                print("[AlphaGenomeScorer] Warning: No TF/ChIP output types available in this AlphaGenome build.")
+        elif m in ("histone", "chip_histone", "chip-histone"):
+            # Try generic or common histone marks; aggregate later across tracks/marks
+            sel_before = len(selected)
+            selected.extend(_maybe_outputs(["HISTONE", "CHIP_HISTONE"]))
+            # If no generic HISTONE type, include common marks individually if present
+            selected.extend(
+                _maybe_outputs([
+                    "H3K27AC", "H3K4ME3", "H3K36ME3", "H3K9AC", "H3K27ME3", "H3K9ME3",
+                ])
+            )
+            if len(selected) == sel_before:
+                print("[AlphaGenomeScorer] Warning: No histone output types available in this AlphaGenome build.")
         else:
             raise ValueError(f"Unsupported modality: {m}")
     # Deduplicate preserving order
@@ -128,6 +159,33 @@ def _variant_scorers(modalities: Iterable[str], width: int):
             )
         elif m in ("tss", "promoter", "initiation"):
             for ot in (out.OutputType.CAGE, out.OutputType.PROCAP):
+                scorers.append(
+                    vs.CenterMaskScorer(
+                        requested_output=ot,
+                        width=width,
+                        aggregation_type=vs.AggregationType.DIFF_MEAN,
+                    )
+                )
+        elif m in ("tf", "chip_tf", "chip-tf", "tf_binding"):
+            # Try available TF/ChIP outputs and add a CenterMask scorer for each
+            tf_like = []
+            for name in ("TF_BINDING", "CHIP_TF", "TF"):
+                if hasattr(out.OutputType, name):
+                    tf_like.append(getattr(out.OutputType, name))
+            for ot in tf_like:
+                scorers.append(
+                    vs.CenterMaskScorer(
+                        requested_output=ot,
+                        width=width,
+                        aggregation_type=vs.AggregationType.DIFF_MEAN,
+                    )
+                )
+        elif m in ("histone", "chip_histone", "chip-histone"):
+            hist_like = []
+            for name in ("HISTONE", "CHIP_HISTONE", "H3K27AC", "H3K4ME3", "H3K36ME3", "H3K9AC", "H3K27ME3", "H3K9ME3"):
+                if hasattr(out.OutputType, name):
+                    hist_like.append(getattr(out.OutputType, name))
+            for ot in hist_like:
                 scorers.append(
                     vs.CenterMaskScorer(
                         requested_output=ot,
@@ -314,6 +372,68 @@ def main(argv: List[str] | None = None) -> None:
                 delta_pro = alt_pro_vals - ref_pro_vals
                 _save_arrays_npz(arrays_dir, cand_id, "procap", x=x_pro, ref_vals=ref_pro_vals, alt_vals=alt_pro_vals, delta_vals=delta_pro)
 
+        # TF binding (ChIP-TF) aggregate tracks if available
+        try:
+            from alphagenome.models import dna_output as out
+            # Attempt generic attributes first
+            if any(hasattr(out.OutputType, n) and getattr(out.OutputType, n) in outputs for n in ("TF_BINDING", "CHIP_TF", "TF")):
+                # Try to resolve attribute names commonly used by the SDK
+                for attr in ("tf_binding", "chip_tf", "tf"):
+                    ref_attr = getattr(var_pred.reference, attr, None)
+                    alt_attr = getattr(var_pred.alternate, attr, None)
+                    if ref_attr is not None and alt_attr is not None:
+                        x_tf, ref_tf_vals = _trackdata_to_arrays(ref_attr)
+                        _, alt_tf_vals = _trackdata_to_arrays(alt_attr)
+                        if ref_tf_vals is not None and alt_tf_vals is not None:
+                            delta_tf = alt_tf_vals - ref_tf_vals
+                            _save_arrays_npz(arrays_dir, cand_id, "tf", x=x_tf, ref_vals=ref_tf_vals, alt_vals=alt_tf_vals, delta_vals=delta_tf)
+                        break
+        except Exception:
+            pass
+
+        # Histone marks (aggregate or per-mark) if available
+        try:
+            # generic aggregate
+            saved_hist = False
+            for attr in ("histone", "chip_histone"):
+                ref_attr = getattr(var_pred.reference, attr, None)
+                alt_attr = getattr(var_pred.alternate, attr, None)
+                if ref_attr is not None and alt_attr is not None:
+                    x_h, ref_h_vals = _trackdata_to_arrays(ref_attr)
+                    _, alt_h_vals = _trackdata_to_arrays(alt_attr)
+                    if ref_h_vals is not None and alt_h_vals is not None:
+                        delta_h = alt_h_vals - ref_h_vals
+                        _save_arrays_npz(arrays_dir, cand_id, "histone", x=x_h, ref_vals=ref_h_vals, alt_vals=alt_h_vals, delta_vals=delta_h)
+                        saved_hist = True
+                        break
+            # Selected per-mark fallbacks (store as combined mean for simplicity)
+            if not saved_hist:
+                mark_attrs = [
+                    "h3k27ac", "h3k4me3", "h3k36me3", "h3k9ac", "h3k27me3", "h3k9me3",
+                ]
+                ref_list = []
+                alt_list = []
+                x_any = None
+                for attr in mark_attrs:
+                    ref_attr = getattr(var_pred.reference, attr, None)
+                    alt_attr = getattr(var_pred.alternate, attr, None)
+                    if ref_attr is not None and alt_attr is not None:
+                        x_m, ref_m_vals = _trackdata_to_arrays(ref_attr)
+                        _, alt_m_vals = _trackdata_to_arrays(alt_attr)
+                        if ref_m_vals is not None and alt_m_vals is not None:
+                            ref_list.append(ref_m_vals)
+                            alt_list.append(alt_m_vals)
+                            x_any = x_m
+                if ref_list and alt_list:
+                    ref_stack = np.vstack(ref_list)
+                    alt_stack = np.vstack(alt_list)
+                    ref_mean = np.nanmean(ref_stack, axis=0)
+                    alt_mean = np.nanmean(alt_stack, axis=0)
+                    delta_h = alt_mean - ref_mean
+                    _save_arrays_npz(arrays_dir, cand_id, "histone", x=x_any, ref_vals=ref_mean, alt_vals=alt_mean, delta_vals=delta_h)
+        except Exception:
+            pass
+
         # Summarize score_variant AnnData results for ranking
         for score in scores:
             scorer = score.uns.get('variant_scorer')
@@ -378,6 +498,20 @@ def main(argv: List[str] | None = None) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     raw_df.to_parquet(out_path)
     print(f"[AlphaGenomeScorer] Wrote predictions/metrics to {out_path}")
+
+    # Optionally annotate the input candidates TSV with aggregated scores (wide form) and save alongside outputs.
+    try:
+        from .ranker import compute_composite as _compute_composite
+        wide = _compute_composite(raw_df)
+        cand_in = Path(args.candidates) if args.candidates else cfg.io.candidates_tsv
+        if cand_in.exists():
+            cand_df = pd.read_csv(cand_in, sep="\t")
+            merged = cand_df.merge(wide, on="candidate_id", how="left")
+            ann_path = (out_path.parent / "candidates_scored.tsv")
+            merged.to_csv(ann_path, sep="\t", index=False)
+            print(f"[AlphaGenomeScorer] Wrote annotated candidates to {ann_path}")
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

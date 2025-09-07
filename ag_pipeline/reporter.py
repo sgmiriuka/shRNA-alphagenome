@@ -212,6 +212,8 @@ def _render_html(scores_csv: Path, plots_root: Path, out_html: Path):
         'has_cage_panel': [],
         'has_procap_panel': [],
         'has_gene_bar': [],
+        'has_tf_panel': [],
+        'has_histone_panel': [],
     }
     for _, r in df_sorted.iterrows():
         rank = int(r['rank'])
@@ -221,6 +223,8 @@ def _render_html(scores_csv: Path, plots_root: Path, out_html: Path):
         exist_cols['has_cage_panel'].append(has(plots_root / f"{rank}_{cand}_cage_panel.png"))
         exist_cols['has_procap_panel'].append(has(plots_root / f"{rank}_{cand}_procap_panel.png"))
         exist_cols['has_gene_bar'].append(has(plots_root / f"{rank}_{cand}_rna_gene_lfc_bar.png"))
+        exist_cols['has_tf_panel'].append(has(plots_root / f"{rank}_{cand}_tf_panel.png"))
+        exist_cols['has_histone_panel'].append(has(plots_root / f"{rank}_{cand}_histone_panel.png"))
     for k, v in exist_cols.items():
         df_sorted[k] = v
 
@@ -237,6 +241,7 @@ def _render_html(scores_csv: Path, plots_root: Path, out_html: Path):
       .card { border: 1px solid #ddd; padding: 1rem; margin-bottom: 1rem; }
       .row { display: flex; gap: 1rem; flex-wrap: wrap; }
       .thumb { max-width: 380px; border: 1px solid #eee; }
+      .caption { font-size: 12px; color: #444; margin-top: .25rem; }
       h2 { margin: 0 0 .5rem 0; }
       small { color: #666; }
     </style>
@@ -246,33 +251,50 @@ def _render_html(scores_csv: Path, plots_root: Path, out_html: Path):
     {% for _, r in rows.iterrows() %}
     <div class="card">
       <h2>#{{ '%02d'|format(r['rank']) }} — {{ r['candidate_id'] }}</h2>
-      <small>Composite: {{ '%.4f'|format(r['composite']) }} | Splicing: {{ '%.4f'|format(r['splicing'] or 0.0) }} | RNA(local): {{ '%.4f'|format(r['rna'] or 0.0) }} | RNA(gene): {{ '%.4f'|format(r.get('rna_gene', 0.0) or 0.0) }} | TSS: {{ '%.4f'|format(r.get('tss', 0.0) or 0.0) }}</small>
+      <small>Position: {{ r['pos'] if (r.get('pos') == r.get('pos')) else 'NA' }} | Composite: {{ '%.4f'|format(r['composite']) }} | Splicing: {{ '%.4f'|format(r.get('splicing', 0.0) or 0.0) }} | RNA(local): {{ '%.4f'|format(r.get('rna', 0.0) or 0.0) }} | RNA(gene): {{ '%.4f'|format(r.get('rna_gene', 0.0) or 0.0) }} | TSS: {{ '%.4f'|format(r.get('tss', 0.0) or 0.0) }} | TF: {{ '%.4f'|format(r.get('tf', 0.0) or 0.0) }} | Histone: {{ '%.4f'|format(r.get('histone', 0.0) or 0.0) }}</small>
       <div class="row">
         {% if r['has_splicing_panel'] %}
         <div>
-          <img class="thumb" src="{{ plots_root }}/{{ r['rank'] }}_{{ r['candidate_id'] }}_splicing_panel.png" alt="splicing_panel" />
+          <img class="thumb" src="{{ plots_root }}/{{ r['rank'] }}_{{ r['candidate_id'] }}_splicing_panel.png" alt="Splicing sashimi (REF / |ALT−REF| / ALT)" />
+          <div class="caption">Splicing sashimi (REF / |ALT−REF| / ALT)</div>
         </div>
         {% endif %}
         {% if r['has_rna_panel'] %}
         <div>
-          <img class="thumb" src="{{ plots_root }}/{{ r['rank'] }}_{{ r['candidate_id'] }}_rna_panel.png" alt="rna_panel" />
+          <img class="thumb" src="{{ plots_root }}/{{ r['rank'] }}_{{ r['candidate_id'] }}_rna_panel.png" alt="RNA-seq (REF / Δ / ALT)" />
+          <div class="caption">RNA-seq track (REF / Δ / ALT)</div>
         </div>
         {% endif %}
       </div>
       <div class="row">
         {% if r['has_cage_panel'] %}
         <div>
-          <img class="thumb" src="{{ plots_root }}/{{ r['rank'] }}_{{ r['candidate_id'] }}_cage_panel.png" alt="cage_panel" />
+          <img class="thumb" src="{{ plots_root }}/{{ r['rank'] }}_{{ r['candidate_id'] }}_cage_panel.png" alt="CAGE (REF / Δ / ALT)" />
+          <div class="caption">CAGE (TSS proxy) (REF / Δ / ALT)</div>
         </div>
         {% endif %}
         {% if r['has_procap_panel'] %}
         <div>
-          <img class="thumb" src="{{ plots_root }}/{{ r['rank'] }}_{{ r['candidate_id'] }}_procap_panel.png" alt="procap_panel" />
+          <img class="thumb" src="{{ plots_root }}/{{ r['rank'] }}_{{ r['candidate_id'] }}_procap_panel.png" alt="PROCAP (REF / Δ / ALT)" />
+          <div class="caption">PROCAP (TSS proxy) (REF / Δ / ALT)</div>
         </div>
         {% endif %}
         {% if r['has_gene_bar'] %}
         <div>
-          <img class="thumb" src="{{ plots_root }}/{{ r['rank'] }}_{{ r['candidate_id'] }}_rna_gene_lfc_bar.png" alt="rna_gene_lfc" />
+          <img class="thumb" src="{{ plots_root }}/{{ r['rank'] }}_{{ r['candidate_id'] }}_rna_gene_lfc_bar.png" alt="RNA gene-level LFC per track" />
+          <div class="caption">RNA gene-level LFC (per track)</div>
+        </div>
+        {% endif %}
+        {% if r['has_tf_panel'] %}
+        <div>
+          <img class="thumb" src="{{ plots_root }}/{{ r['rank'] }}_{{ r['candidate_id'] }}_tf_panel.png" alt="TF binding (REF / Δ / ALT)" />
+          <div class="caption">TF binding (REF / Δ / ALT)</div>
+        </div>
+        {% endif %}
+        {% if r['has_histone_panel'] %}
+        <div>
+          <img class="thumb" src="{{ plots_root }}/{{ r['rank'] }}_{{ r['candidate_id'] }}_histone_panel.png" alt="Histone marks (REF / Δ / ALT)" />
+          <div class="caption">Histone marks (REF / Δ / ALT)</div>
         </div>
         {% endif %}
       </div>
@@ -347,6 +369,17 @@ def main(argv: List[str] | None = None) -> None:
 
         # Transcription initiation (CAGE / PROCAP) tracks
         for label in ("cage", "procap"):
+            npz = pred.parent / 'arrays' / f"{cand}_{label}.npz"
+            if npz.exists():
+                arrays = _load_arrays_npz(npz)
+                if arrays and arrays.get('ref') is not None and arrays.get('alt') is not None:
+                    base = plots_dir / f"{rank}_{cand}_{label}"
+                    title = f"{cand} {label.upper()}"
+                    _plot_track_three(arrays['ref'], arrays['alt'], arrays.get('x'), base_title=title, base_out_prefix=base)
+                    _plot_track_three_panel(arrays['ref'], arrays['alt'], arrays.get('x'), base_title=title, panel_out_path=base.with_name(base.name + "_panel.png"))
+
+        # TF binding and Histone panels if arrays were saved
+        for label in ("tf", "histone"):
             npz = pred.parent / 'arrays' / f"{cand}_{label}.npz"
             if npz.exists():
                 arrays = _load_arrays_npz(npz)

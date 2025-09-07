@@ -7,7 +7,7 @@ Overview
 This repository provides a command‑line pipeline for evaluating potential genomic insertion sites for a user‑provided DNA cassette using AlphaGenome. Given a genomic interval (BED) and an insertion sequence (FASTA), the pipeline:
 
 - enumerates candidate insertion positions (optionally respecting splice‑signal buffers),
-- predicts REF vs ALT effects for multiple modalities (splicing, local RNA; optional CAGE/PROCAP),
+- predicts REF vs ALT effects for multiple modalities (splicing, local RNA; optional CAGE/PROCAP; optional TF binding and histone marks),
 - aggregates variant‑centred and gene‑level scores,
 - ranks sites by minimal predicted disruption, and
 - produces per‑candidate plots plus an HTML report.
@@ -18,7 +18,7 @@ Components
 ----------
 
 - VariantBuilder: emits insertion candidates respecting splice-signal buffers
-- AlphaGenomeScorer: runs AlphaGenome predictions (REF/ALT) and variant-centered scores
+- AlphaGenomeScorer: runs AlphaGenome predictions (REF/ALT) and variant-centered scores (supports optional TF/histone)
 - Ranker: ranks by minimal predicted disruption (splicing-driven)
 - Reporter: plots per-candidate figures and builds an HTML report
 
@@ -59,7 +59,7 @@ python -m ag_pipeline.cli Full \
   --config ag.yaml \
   --intron-bed data/gene_intron2_hg38.bed \
   --cassette data/shrna_cassette.fa \
-  --modalities splicing rna tss \
+  --modalities splicing rna tss tf histone \
   --variant-window 501
 ```
 
@@ -86,7 +86,7 @@ python -m ag_pipeline.cli VariantBuilder \
 python -m ag_pipeline.cli AlphaGenomeScorer \
   --config ag.yaml \
   --candidates data/candidates.tsv \
-  --modalities splicing rna tss \
+  --modalities splicing rna tss tf histone \
   --variant-window 501 \
   --out ag_out/raw.parquet
 
@@ -115,10 +115,12 @@ Config schema (ag.yaml):
   - `sequence_length`: Model context (e.g., 2048, 16384, 131072, ...).
   - `retries`, `batch_size`: Client retry and batching knobs.
 - `scoring`:
-  - `modalities`: List of modalities to request/pipeline (e.g., ["splicing", "rna", "tss"]).
+  - `modalities`: List of modalities to request/pipeline (e.g., ["splicing", "rna", "tss", "tf", "histone"]).
     - `splicing` → splice_site_usage, splice_sites (CenterMask) + gene-level splicing + splice junction scorer.
     - `rna` → local RNA (CenterMask) + gene-level RNA LFC (GeneMaskLFC).
     - `tss` (alias: `promoter`, `initiation`) → CAGE and PROCAP (CenterMask).
+    - `tf` (aliases: `chip_tf`, `tf_binding`) → TF binding tracks (CenterMask) where supported by the AlphaGenome build.
+    - `histone` (alias: `chip_histone`) → aggregate histone marks or common H3K* marks (CenterMask) where supported.
   - `variant_window_nt`: CenterMask width. Must be supported (e.g., 501, 2001, 10001); unsupported values are coerced to nearest.
   - `tissues`: Optional list of ontology CURIEs (e.g., ["UBERON:0002048"]) to filter tracks.
 - `buffers`:
@@ -159,8 +161,8 @@ CLI flags and their config fallbacks:
   - `--config`: Use paths from ag.yaml.
   - `--in` ← `io.raw_parquet`
   - `--out` ← `io.scores_csv`
-  - Output columns: `rank, candidate_id, pos, splicing, rna, rna_gene, tss, composite`
-  - Composite: `splicing + 0.2·rna + 0.2·rna_gene`
+  - Output columns: `rank, candidate_id, pos, splicing, rna, rna_gene, tss, tf, histone, composite`
+  - Composite: `splicing + 0.2·rna + 0.2·rna_gene + 0.1·tss + 0.1·tf + 0.1·histone`
 
 - Reporter:
   - `--config`: Use paths from ag.yaml.
@@ -168,7 +170,7 @@ CLI flags and their config fallbacks:
   - `--pred` ← `io.raw_parquet`
   - `--plots` ← `io.plots_dir`
   - `--html` ← `io.report_html`
-  - Produces per-candidate panels (splicing, RNA, CAGE/PROCAP if enabled) and RNA gene-level LFC bar.
+  - Produces per-candidate panels (splicing, RNA, CAGE/PROCAP if enabled, plus TF/histone if enabled) and RNA gene-level LFC bar.
 
 - Full:
   - `--config`: Required for defaults.
@@ -190,7 +192,9 @@ Notes
   - `splicing`: Splice site usage and sites (CenterMask), plus GeneMask splicing and junction-centric scoring.
   - `rna`: Local RNA (CenterMask) and gene-level RNA log fold change (GeneMaskLFC).
   - `tss`: Transcription initiation proxies (CAGE, PROCAP) with CenterMask.
-- Ranking composite now includes gene-level RNA separately: composite = splicing + 0.2·RNA(local) + 0.2·RNA(gene).
+- `tf`: Transcription factor binding (if supported by the AlphaGenome build), scored with CenterMask.
+- `histone`: Histone marks (aggregate or common H3K* marks), scored with CenterMask.
+- Ranking composite now includes TSS/TF/histone contributions: composite = splicing + 0.2·RNA(local) + 0.2·RNA(gene) + 0.1·TSS + 0.1·TF + 0.1·Histone.
 - Reporter shows vertical panel images for splicing and RNA, panels for CAGE/PROCAP (if requested), and a small bar chart of gene-level RNA LFC by track.
 - `ALPHAGENOME_API_KEY` is required. You can also set `ALPHA_GENOME_API_KEY` or change `alphagenome.api_key_env` in `ag.yaml`.
 - Arrays for plotting are persisted to `ag_out/arrays/*.npz` and junctions as JSON. `ag_out/raw.parquet` stores summarised effect metrics for ranking.
@@ -208,8 +212,15 @@ Alternative direct module calls (skip unified CLI):
 # VariantBuilder
 python -m ag_pipeline.variant_builder --intron-bed ... --cassette ... --buffers 120 18 40 120 --stride 25 --max 80 --out data/candidates.tsv
 
-# Scorer
-python -m ag_pipeline.scorer --config ag.yaml --candidates data/candidates.tsv --modalities splicing rna --variant-window 400 --out ag_out/raw.parquet
+# Scorer (with TF + histone)
+python -m ag_pipeline.scorer --config ag.yaml --candidates data/candidates.tsv --modalities splicing rna tss tf histone --variant-window 400 --out ag_out/raw.parquet
+
+Outputs and Annotations
+-----------------------
+
+- Raw per-scorer metrics are saved to `ag_out/raw.parquet`.
+- Arrays used for plotting are stored in `ag_out/arrays/*.npz` and splice junctions in `ag_out/arrays/*_splicing_junctions.json`.
+- An annotated TSV with per-candidate aggregates is saved to `ag_out/candidates_scored.tsv` (merges the original `candidates.tsv` with splicing/RNA/TSS/TF/histone summaries and composite).
 
 # Ranker
 python -m ag_pipeline.ranker --in ag_out/raw.parquet --out ag_out/candidates.csv

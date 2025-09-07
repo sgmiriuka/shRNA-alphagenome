@@ -23,6 +23,12 @@ def compute_composite(scores_df: pd.DataFrame) -> pd.DataFrame:
             return "rna"
         if ("cage" in s) or ("procap" in s):
             return "tss"
+        # TF/ChIP: common tokens in scorer repr or output names
+        if ("tf_binding" in s) or ("chip_tf" in s) or (" tf " in f" {s} ") or ("tf(" in s) or ("tf)" in s):
+            return "tf"
+        # Histone marks: look for generic keyword or common H3 tokens
+        if ("histone" in s) or ("chip_histone" in s) or ("h3k" in s):
+            return "histone"
         return "other"
 
     scores_df = scores_df.copy()
@@ -35,7 +41,7 @@ def compute_composite(scores_df: pd.DataFrame) -> pd.DataFrame:
     # Pivot to wide
     wide = agg.pivot(index="candidate_id", columns="modality", values="primary_mean").reset_index()
     wide.columns.name = None
-    for col in ("splicing", "rna", "rna_gene", "tss"):
+    for col in ("splicing", "rna", "rna_gene", "tss", "tf", "histone"):
         if col not in wide.columns:
             wide[col] = np.nan
 
@@ -47,21 +53,25 @@ def compute_composite(scores_df: pd.DataFrame) -> pd.DataFrame:
         with np.errstate(all='ignore'):
             wide["pos"] = wide["pos"].astype("Int64")
 
-    # Composite (lower is better): splicing + 0.2*local RNA + 0.2*gene-level RNA
+    # Composite (lower is better): splicing + small contributions from other modalities.
+    # Weights chosen heuristically to emphasize splicing, with supporting evidence from RNA, TSS, TF, histone.
     wide["composite"] = (
         wide["splicing"].fillna(0.0)
         + 0.2 * wide["rna"].fillna(0.0)
         + 0.2 * wide["rna_gene"].fillna(0.0)
+        + 0.1 * wide["tss"].fillna(0.0)
+        + 0.1 * wide["tf"].fillna(0.0)
+        + 0.1 * wide["histone"].fillna(0.0)
     )
 
     # Optional soft penalty: nothing here (buffer already enforced upstream)
     wide = wide.sort_values(by=["composite", "candidate_id"]).reset_index(drop=True)
     wide["rank"] = np.arange(1, len(wide) + 1)
-    # Output order: rank, candidate_id, pos, splicing, rna, rna_gene, tss, composite
+    # Output order: rank, candidate_id, pos, splicing, rna, rna_gene, tss, tf, histone, composite
     cols = ["rank", "candidate_id"]
     if "pos" in wide.columns:
         cols.append("pos")
-    cols += ["splicing", "rna", "rna_gene", "tss", "composite"]
+    cols += ["splicing", "rna", "rna_gene", "tss", "tf", "histone", "composite"]
     # Keep only columns that exist
     cols = [c for c in cols if c in wide.columns]
     return wide[cols]

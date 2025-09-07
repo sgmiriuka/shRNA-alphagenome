@@ -13,8 +13,8 @@ alphagenome:
 
 scoring:
   # Modalities to request from the server for predictions and scoring.
-  # Supported keys: splicing, rna
-  modalities: ["splicing", "rna", "tss"]
+  # Supported keys: splicing, rna, tss, tf, histone
+  modalities: ["splicing", "rna", "tss", "tf", "histone"]
   # Variant-centered aggregation window (bp) for CenterMaskScorer
   # Must be one of the supported widths for the CenterMask scorer.
   # Typical allowed values include: 501, 2001, 10001, 100001, 200001 (None means full context).
