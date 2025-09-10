@@ -4,26 +4,32 @@ AlphaGenome Variant Insertion Scoring Pipeline
 ## Overview
 --------
 
-This repository provides a command‑line pipeline for evaluating potential genomic insertion sites for a user‑provided DNA cassette using AlphaGenome. Given a genomic interval (BED) and an insertion sequence (FASTA), the pipeline:
+This repository provides a command‑line pipeline for evaluating potential genomic insertion or deletion sites for a user‑provided DNA cassette using AlphaGenome. Given a genomic interval (BED) and an insertion/deletion sequence (FASTA), the pipeline:
 
-- enumerates candidate insertion positions (optionally respecting splice‑signal buffers),
+- enumerates candidate positions (optionally respecting splice‑signal buffers),
 - predicts REF vs ALT effects for multiple modalities (splicing, local RNA; optional CAGE/PROCAP; optional TF binding and histone marks),
 - aggregates variant‑centred and gene‑level scores,
 - ranks sites by minimal predicted disruption, and
 - produces per‑candidate plots plus an HTML report.
 
-Originally, the purpose was to insert an shRNA in an intron. However, the tools are generic: they accept any interval (not only introns) and any cassette length. AlphaGenome runs remotely and requires an API key; all requests are variant‑centred with a configurable sequence context and aggregation window.
+Originally, the purpose was to insert an shRNA in an intron. However, the tools are generic: they accept any interval (not only introns) and any cassette length. You can choose between **insertion** (adding the cassette sequence) or **extraction** (deleting bases equal to the cassette length). AlphaGenome runs remotely and requires an API key; all requests are variant‑centred with a configurable sequence context and aggregation window.
 
 ## Components
 ----------
 
-- VariantBuilder: emits insertion candidates respecting splice-signal buffers
+- VariantBuilder: emits insertion or deletion candidates respecting splice-signal buffers
 - AlphaGenomeScorer: runs AlphaGenome predictions (REF/ALT) and variant-centered scores (supports optional TF/histone)
 - Ranker: ranks by minimal predicted disruption (splicing-driven)
 - Reporter: plots per-candidate figures and builds an HTML report
 
 ## Quick Start (Conda)
 ------------------
+
+If using `--variant-type extraction`, you'll need a genome FASTA file. For hg38:
+```bash
+wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/hg38.fa.gz
+gunzip hg38.fa.gz
+```
 
 1) Create and activate the Conda env (installs AlphaGenome via pip inside the env):
 
@@ -61,10 +67,14 @@ python -m ag_pipeline.cli Full \
   --intron-bed data/gene_intron2_hg38.bed \
   --cassette data/shrna_cassette.fa \
   --modalities splicing rna tss tf histone \
-  --variant-window 501
+  --variant-window 501 \
+  --variant-type insertion  # or 'extraction' for deletions
+  --genome-fasta /path/to/genome.fa  # required only for extraction
 ```
 
 Notes:
+- `--variant-type`: Choose "insertion" (default, adds the cassette) or "extraction" (deletes bases equal to cassette length).
+- `--genome-fasta`: Required only when `--variant-type extraction`. For deletions, the script needs the genome FASTA to extract the actual DNA sequence that will be deleted (populates the `ref` field in the TSV). For insertions, this is not needed since `ref` is empty.
 - If you omit `--buffers/--stride/--max`, they default to values from `ag.yaml`.
 - Outputs default to `data/candidates.tsv`, `ag_out/raw.parquet`, `ag_out/candidates.csv`, and `ag_out/plots` + `ag_out/report.html`.
 
@@ -83,8 +93,13 @@ python -m ag_pipeline.cli VariantBuilder \
   --buffers 120 18 40 120 \   # use 0 0 0 0 for non‑intronic intervals
   --stride 25 \
   --max 80 \
-  --out data/candidates.tsv
+  --out data/candidates.tsv \
+  --variant-type insertion  # or 'extraction' for deletions
+  --genome-fasta /path/to/genome.fa  # required only for extraction
 ```
+
+- `--variant-type`: "insertion" (default) to add the cassette, "extraction" to delete bases equal to cassette length.
+- `--genome-fasta`: Genome FASTA file, required only for extraction to extract reference sequences.
 
 ### AlphaGenome predictions + scores (now with gene-level RNA and TSS tracks)
 
@@ -159,6 +174,8 @@ CLI flags and their config fallbacks:
   - `--stride` ← `scan.stride_nt`
   - `--max` ← `scan.max_candidates`
   - `--out` ← `io.candidates_tsv`
+  - `--variant-type`: "insertion" (default) or "extraction"
+  - `--genome-fasta`: Required only for extraction (to extract reference sequences for deletions)
   - `--focus`/`--window`: optional local refinement; keep candidates with |pos−focus| ≤ window
 
 - AlphaGenomeScorer:
@@ -205,6 +222,8 @@ New: Gene structure figure with candidate spikes
   - Optional `--buffers/--stride/--max`: fall back to `buffers.*`/`scan.*`.
   - Optional `--modalities`/`--variant-window`: fall back to `scoring.*`.
   - Optional `--raw-out/--scores-out/--plots/--html`: fall back to `io.*`.
+  - `--variant-type`: "insertion" (default) or "extraction"
+  - `--genome-fasta`: Required only for extraction
 
 Environment
 - Export your API key in the env var named by `alphagenome.api_key_env` (default `ALPHAGENOME_API_KEY`).
@@ -222,6 +241,7 @@ Environment
 - `tf`: Transcription factor binding (if supported by the AlphaGenome build), scored with CenterMask.
 - `histone`: Histone marks (aggregate or common H3K* marks), scored with CenterMask.
 - Ranking composite now includes TSS/TF/histone contributions: composite = splicing + 0.2·RNA(local) + 0.2·RNA(gene) + 0.1·TSS + 0.1·TF + 0.1·Histone.
+- Variant types: "insertion" adds the cassette sequence without replacing bases; "extraction" removes bases equal to cassette length. Extractions require a genome FASTA to determine the deleted sequence.
 - Reporter shows vertical panel images for splicing and RNA, panels for CAGE/PROCAP (if requested), and a small bar chart of gene-level RNA LFC by track.
 - `ALPHAGENOME_API_KEY` is required. You can also set `ALPHA_GENOME_API_KEY` or change `alphagenome.api_key_env` in `ag.yaml`.
 - Arrays for plotting are persisted to `ag_out/arrays/*.npz` and junctions as JSON. `ag_out/raw.parquet` stores summarised effect metrics for ranking.
@@ -246,14 +266,18 @@ python -m ag_pipeline.variant_builder \
   --buffers 120 18 40 120 \   # for non‑intronic regions use: 0 0 0 0
   --stride 25 \
   --max 80 \
-  --out data/candidates.tsv
+  --out data/candidates.tsv \
+  --variant-type insertion  # or 'extraction'
+  --genome-fasta /path/to/genome.fa  # required only for extraction
 ```
 - --intron-bed: BED interval to scan (can be any region, not just introns).
-- --cassette: FASTA with insertion sequence.
+- --cassette: FASTA with insertion/deletion sequence.
 - --buffers DONOR BP_START BP_END ACCEPTOR: Splice-signal exclusion buffers; set to `0 0 0 0` for generic regions.
 - --stride: Step in nucleotides when enumerating candidate breakpoints.
 - --max: Maximum number of candidates to emit.
 - --out: TSV written by this step.
+- --variant-type: "insertion" (default) or "extraction".
+- --genome-fasta: Required only for extraction (to extract reference sequences for deletions).
   Optional: `--focus POS --window N` to keep only candidates within N nt of POS.
 
 Scorer (module; with optional TF and histone)
@@ -321,7 +345,8 @@ This is the main output produced by Ranker at `ag_out/candidates.csv`. It contai
 
 ##### Coordinate conventions (applies to `data/candidates.tsv` and `ag_out/candidates.csv`)
 - 1‑based position: `pos` follows the AlphaGenome variant schema as a 1‑based coordinate.
-- Pure insertion: `ref` is empty and `alt` contains the full inserted sequence in the TSV. Conceptually, the cassette is inserted at the breakpoint without deleting reference bases.
+- Pure insertion (`--variant-type insertion`): `ref` is empty and `alt` contains the full inserted sequence in the TSV. Conceptually, the cassette is inserted at the breakpoint without deleting reference bases.
+- Pure deletion (`--variant-type extraction`): `ref` contains the deleted sequence (length equal to cassette) and `alt` is empty. Conceptually, bases equal to cassette length are removed starting at the breakpoint.
 - Model context: Scoring uses the model context (`alphagenome.sequence_length`) centered on `pos`; variant‑centered scorers aggregate over `scoring.variant_window_nt`.
 
 ## Code Documentation

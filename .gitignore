@@ -3,6 +3,7 @@ Byte-compiled / cache
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyc
 
 Virtual environments
 
@@ -53,5 +54,7 @@ OS / miscellaneous
 .DS_Store
 Thumbs.db
 ag_out/
+ag_out_insertion/
 bin/
 data/
+ref/

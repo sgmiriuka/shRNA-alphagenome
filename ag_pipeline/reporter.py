@@ -640,6 +640,17 @@ def main(argv: List[str] | None = None) -> None:
         intron_bed_path = None
     transcript_id = args.transcript if getattr(args, 'transcript', None) else None
     gtf_path = Path(args.gtf) if getattr(args, 'gtf', None) else None
+
+    # Try to infer transcript_id from intron_bed_path if not provided
+    if transcript_id is None and intron_bed_path is not None:
+        import re
+        bed_name = intron_bed_path.name
+        # Look for ENST pattern in filename
+        match = re.search(r'(ENST\d+)', bed_name)
+        if match:
+            transcript_id = match.group(1)
+            print(f"[Reporter] Inferred transcript ID from BED filename: {transcript_id}")
+
     if transcript_id is not None and intron_bed_path is not None:
         try:
             # Fetch exon structures
@@ -663,8 +674,10 @@ def main(argv: List[str] | None = None) -> None:
                 out_path=plots / "gene_structure_spikes.png",
                 transcript_id=transcript_id,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[Reporter] Failed to create gene_structure_spikes.png: {e}")
+    elif intron_bed_path is not None and transcript_id is None:
+        print("[Reporter] To create gene_structure_spikes.png, provide --transcript (e.g., ENST00000325495) or ensure the BED filename contains the transcript ID (e.g., gene_ENST00000325495_intron2_hg38.bed).")
 
     if html:
         _render_html(scores, plots, html)

@@ -5,6 +5,7 @@ import sys
 
 from . import variant_builder, scorer, ranker, reporter
 from . import transcript_bed
+from . import variant_builder_extracting as vb_ext
 from .config import AppConfig
 
 
@@ -24,13 +25,15 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     # VariantBuilder
-    vb = sub.add_parser("VariantBuilder", help="Emit insertion variants within intron 2")
+    vb = sub.add_parser("VariantBuilder", help="Emit insertion or deletion variants within intron 2")
     vb.add_argument("--intron-bed", required=True)
     vb.add_argument("--cassette", required=True)
     vb.add_argument("--buffers", nargs=4, required=True)
     vb.add_argument("--stride", required=True)
     vb.add_argument("--max", dest="max_candidates", required=True)
     vb.add_argument("--out", required=True)
+    vb.add_argument("--variant-type", choices=["insertion", "extraction"], default="insertion", help="Type of variant: insertion (add cassette) or extraction (delete cassette-length bases)")
+    vb.add_argument("--genome-fasta", required=False, help="Genome FASTA file (required for extraction)")
 
     # AlphaGenomeScorer
     sc = sub.add_parser("AlphaGenomeScorer", help="Score candidates via AlphaGenome")
@@ -79,20 +82,37 @@ def main(argv=None):
     full.add_argument("--html", default="ag_out/report.html")
     full.add_argument("--transcript", required=False, help="Optional transcript ID to draw gene structure")
     full.add_argument("--gtf", required=False, help="Optional local GTF for exon structure")
+    full.add_argument("--variant-type", choices=["insertion", "extraction"], default="insertion", help="Type of variant: insertion (add cassette) or extraction (delete cassette-length bases)")
+    full.add_argument("--genome-fasta", required=False, help="Genome FASTA file (required for extraction)")
 
     args, rest = parser.parse_known_args(argv)
 
     if args.cmd == "VariantBuilder":
-        variant_builder.main(
-            [
-                "--intron-bed", args.intron_bed,
-                "--cassette", args.cassette,
-                "--buffers", *[str(x) for x in args.buffers],
-                "--stride", str(args.stride),
-                "--max", str(args.max_candidates),
-                "--out", args.out,
-            ]
-        )
+        if args.variant_type == "extraction":
+            if not args.genome_fasta:
+                raise SystemExit("--genome-fasta is required for extraction variant type")
+            vb_ext.main(
+                [
+                    "--intron-bed", args.intron_bed,
+                    "--cassette", args.cassette,
+                    "--genome-fasta", args.genome_fasta,
+                    "--buffers", *[str(x) for x in args.buffers],
+                    "--stride", str(args.stride),
+                    "--max", str(args.max_candidates),
+                    "--out", args.out,
+                ]
+            )
+        else:
+            variant_builder.main(
+                [
+                    "--intron-bed", args.intron_bed,
+                    "--cassette", args.cassette,
+                    "--buffers", *[str(x) for x in args.buffers],
+                    "--stride", str(args.stride),
+                    "--max", str(args.max_candidates),
+                    "--out", args.out,
+                ]
+            )
     elif args.cmd == "AlphaGenomeScorer":
         scorer.main(
             [
@@ -135,14 +155,27 @@ def main(argv=None):
         if args.max_candidates is None:
             args.max_candidates = cfg.scan.max_candidates
         # Run VariantBuilder
-        variant_builder.main([
-            "--intron-bed", args.intron_bed,
-            "--cassette", args.cassette,
-            "--buffers", *[str(x) for x in args.buffers],
-            "--stride", str(args.stride),
-            "--max", str(args.max_candidates),
-            "--out", args.candidates,
-        ])
+        if getattr(args, 'variant_type', 'insertion') == "extraction":
+            if not getattr(args, 'genome_fasta', None):
+                raise SystemExit("--genome-fasta is required for extraction variant type")
+            vb_ext.main([
+                "--intron-bed", args.intron_bed,
+                "--cassette", args.cassette,
+                "--genome-fasta", args.genome_fasta,
+                "--buffers", *[str(x) for x in args.buffers],
+                "--stride", str(args.stride),
+                "--max", str(args.max_candidates),
+                "--out", args.candidates,
+            ])
+        else:
+            variant_builder.main([
+                "--intron-bed", args.intron_bed,
+                "--cassette", args.cassette,
+                "--buffers", *[str(x) for x in args.buffers],
+                "--stride", str(args.stride),
+                "--max", str(args.max_candidates),
+                "--out", args.candidates,
+            ])
         # Run Scorer
         scorer_call = [
             "--config", args.config,
