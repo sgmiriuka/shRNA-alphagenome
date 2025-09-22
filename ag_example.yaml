@@ -27,12 +27,21 @@ io:
   make_html: true
 
 buffers:
-  donor_min_nt: 0
+  donor_min_nt: 120
   branchpoint_window_nt:
-    start: 0
-    end: 0
-  acceptor_min_nt: 0
+    start: 18
+    end: 40
+  acceptor_min_nt: 120
 
 scan:
   stride_nt: 5
-  max_candidates: 1000
+  max_candidates: 500
+
+inputs:
+  # Provide defaults for CLI invocations (leave empty to supply on the command line).
+  intron_bed: data/gene_intron2_hg38.bed
+  cassette: data/shrna_cassette.fa
+  # Uncomment to run multiple cassette FASTA files by default:
+  # cassettes:
+  #   - data/cassettes/cassette1.fa
+  #   - data/cassettes/cassette2.fa

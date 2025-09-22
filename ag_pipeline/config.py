@@ -98,9 +98,11 @@ class InputsConfig:
     Attributes:
         intron_bed: Path to the BED file defining the genomic interval to scan.
         cassette: Path to the FASTA file containing the insertion sequence.
+        cassettes: Optional list of FASTA files for multi-cassette runs.
     """
     intron_bed: Optional[Path] = None
     cassette: Optional[Path] = None
+    cassettes: List[Path] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
@@ -187,9 +189,11 @@ class AppConfig:
         )
 
         inputs_raw = raw.get("inputs", {}) or {}
+        multi = inputs_raw.get("cassettes") or []
         inputs_cfg = InputsConfig(
             intron_bed=Path(inputs_raw["intron_bed"]) if inputs_raw.get("intron_bed") else None,
             cassette=Path(inputs_raw["cassette"]) if inputs_raw.get("cassette") else None,
+            cassettes=[Path(p) for p in multi],
         )
 
         return AppConfig(

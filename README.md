@@ -42,7 +42,7 @@ Ensure you have an API key in env var `ALPHAGENOME_API_KEY` (or `ALPHA_GENOME_AP
 
 2) Prepare inputs in `data/`:
 - `data/gene_intron2_hg38.bed` (0-based interval; any region works, not just introns)
-- `data/shrna_cassette.fa` (FASTA with one sequence; any length supported)
+- `data/shrna_cassette.fa` (FASTA with one sequence; any length supported). For multi-cassette runs, supply several single-sequence FASTA files via `--cassette-list` or `--cassette-dir`.
 
 3) Configure `ag.yaml` as needed (modalities, variant window, sequence_length, etc.).
 
@@ -77,6 +77,30 @@ Notes:
 - `--genome-fasta`: Required only when `--variant-type extraction`. For deletions, the script needs the genome FASTA to extract the actual DNA sequence that will be deleted (populates the `ref` field in the TSV). For insertions, this is not needed since `ref` is empty.
 - If you omit `--buffers/--stride/--max`, they default to values from `ag.yaml`.
 - Outputs default to `data/candidates.tsv`, `ag_out/raw.parquet`, `ag_out/candidates.csv`, and `ag_out/plots` + `ag_out/report.html`.
+
+### Multi-cassette mode
+
+Run the full pipeline across several cassette FASTA files in one command. You can list the files explicitly:
+
+```
+python -m ag_pipeline.cli Full \
+  --config ag.yaml \
+  --intron-bed data/gene_intron2_hg38.bed \
+  --cassette-list data/cassettes/cassette1.fa data/cassettes/cassette2.fa \
+  --multi-out-root ag_out/multi_batch
+```
+
+…or point at a directory of FASTA files:
+
+```
+python -m ag_pipeline.cli Full \
+  --config ag.yaml \
+  --intron-bed data/gene_intron2_hg38.bed \
+  --cassette-dir data/cassettes \
+  --multi-out-root ag_out/multi_batch
+```
+
+Each cassette FASTA must contain exactly one sequence. The CLI creates numbered subdirectories (e.g., `01_cassette-name/`) under `--multi-out-root` (defaults to `io.out_dir`) and writes that cassette’s `candidates.tsv`, `raw.parquet`, `candidates.csv`, `plots/`, and `report.html` inside. Per-output overrides like `--raw-out` or `--scores-out` are only supported for single-cassette runs.
 
 ## Individual steps (optional)
 ---------------------------
@@ -160,6 +184,7 @@ Config schema (ag.yaml):
 - `inputs` (optional):
   - `intron_bed`: Path to the interval BED to scan (any region; not restricted to introns).
   - `cassette`: Path to the insertion (e.g., shRNA cassette) FASTA (any length).
+  - `cassettes`: Optional list of cassette FASTA paths for multi-cassette runs (each must contain one sequence).
 - `io`:
   - `out_dir`: Base directory for outputs.
   - `make_html`: Whether to build HTML.
@@ -218,10 +243,14 @@ New: Gene structure figure with candidate spikes
 
 - Full:
   - `--config`: Required for defaults.
-  - `--intron-bed` / `--cassette`: Required via CLI or `inputs.*`.
+  - `--intron-bed`: Required via CLI (the BED interval to scan).
+  - `--cassette`: Single cassette FASTA (falls back to `inputs.cassette`).
+  - `--cassette-list`: Multiple cassette FASTA paths; enables multi-cassette mode.
+  - `--cassette-dir`: Directory of cassette FASTA files; enables multi-cassette mode.
+  - `--multi-out-root`: Base directory for multi-cassette outputs (defaults to `io.out_dir`).
   - Optional `--buffers/--stride/--max`: fall back to `buffers.*`/`scan.*`.
   - Optional `--modalities`/`--variant-window`: fall back to `scoring.*`.
-  - Optional `--raw-out/--scores-out/--plots/--html`: fall back to `io.*`.
+  - Optional `--raw-out/--scores-out/--plots/--html`: fall back to `io.*` (single-cassette only).
   - `--variant-type`: "insertion" (default) or "extraction"
   - `--genome-fasta`: Required only for extraction
 

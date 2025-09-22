@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
+from pathlib import Path
+from typing import List, Set
 
 from . import variant_builder, scorer, ranker, reporter
 from . import transcript_bed
@@ -69,17 +72,20 @@ def main(argv=None):
     full = sub.add_parser("Full", help="Run VariantBuilder → Scorer → Ranker → Reporter")
     full.add_argument("--config", default="ag.yaml")
     full.add_argument("--intron-bed", required=True)
-    full.add_argument("--cassette", required=True)
+    full.add_argument("--cassette", required=False, default=None, help="Single cassette FASTA path (can be combined with --cassette-list/--cassette-dir)")
+    full.add_argument("--cassette-list", nargs='+', default=None, help="One or more cassette FASTA paths to run sequentially")
+    full.add_argument("--cassette-dir", default=None, help="Directory containing cassette FASTA files to run sequentially")
+    full.add_argument("--multi-out-root", default=None, help="Base output directory for multi-cassette runs (defaults to io.out_dir)")
     full.add_argument("--buffers", nargs=4, type=int, default=None, help="DONOR BP_START BP_END ACCEPTOR (optional, falls back to ag.yaml)")
     full.add_argument("--stride", type=int, default=None)
     full.add_argument("--max", dest="max_candidates", type=int, default=None)
-    full.add_argument("--candidates", default="data/candidates.tsv")
+    full.add_argument("--candidates", default=None)
     full.add_argument("--modalities", nargs='*', default=None)
     full.add_argument("--variant-window", type=int, default=None)
-    full.add_argument("--raw-out", default="ag_out/raw.parquet")
-    full.add_argument("--scores-out", default="ag_out/candidates.csv")
-    full.add_argument("--plots", default="ag_out/plots")
-    full.add_argument("--html", default="ag_out/report.html")
+    full.add_argument("--raw-out", default=None)
+    full.add_argument("--scores-out", default=None)
+    full.add_argument("--plots", default=None)
+    full.add_argument("--html", default=None)
     full.add_argument("--transcript", required=False, help="Optional transcript ID to draw gene structure")
     full.add_argument("--gtf", required=False, help="Optional local GTF for exon structure")
     full.add_argument("--variant-type", choices=["insertion", "extraction"], default="insertion", help="Type of variant: insertion (add cassette) or extraction (delete cassette-length bases)")
@@ -140,9 +146,13 @@ def main(argv=None):
             call.extend(["--gtf", args.gtf])
         transcript_bed.main(call)
     elif args.cmd == "Full":
-        # Load config to fill in defaults
         cfg = AppConfig.from_yaml(args.config)
-        # Fill buffers / stride / max from config if not provided
+
+        intron_bed_path = Path(args.intron_bed).expanduser()
+        if not intron_bed_path.exists():
+            raise SystemExit(f"--intron-bed not found: {intron_bed_path}")
+        intron_bed_str = str(intron_bed_path)
+
         if args.buffers is None:
             args.buffers = [
                 cfg.buffers.donor_min_nt,
@@ -154,51 +164,170 @@ def main(argv=None):
             args.stride = cfg.scan.stride_nt
         if args.max_candidates is None:
             args.max_candidates = cfg.scan.max_candidates
-        # Run VariantBuilder
+
+        genome_fasta_str = None
         if getattr(args, 'variant_type', 'insertion') == "extraction":
-            if not getattr(args, 'genome_fasta', None):
+            genome_fasta_value = getattr(args, 'genome_fasta', None)
+            if not genome_fasta_value:
                 raise SystemExit("--genome-fasta is required for extraction variant type")
-            vb_ext.main([
-                "--intron-bed", args.intron_bed,
-                "--cassette", args.cassette,
-                "--genome-fasta", args.genome_fasta,
-                "--buffers", *[str(x) for x in args.buffers],
-                "--stride", str(args.stride),
-                "--max", str(args.max_candidates),
-                "--out", args.candidates,
-            ])
+            genome_fasta_path = Path(genome_fasta_value).expanduser()
+            if not genome_fasta_path.exists():
+                raise SystemExit(f"--genome-fasta not found: {genome_fasta_path}")
+            genome_fasta_str = str(genome_fasta_path)
+
+        buffers_args = [str(x) for x in args.buffers]
+        stride_str = str(args.stride)
+        max_str = str(args.max_candidates)
+
+        cassette_paths: List[Path] = []
+        seen: Set[str] = set()
+
+        def _add_cassette(path_like, source: str) -> None:
+            if not path_like:
+                return
+            p = Path(path_like).expanduser()
+            if not p.exists():
+                raise SystemExit(f"{source}: cassette FASTA not found: {p}")
+            if p.is_dir():
+                raise SystemExit(f"{source}: expected FASTA file but found directory: {p}")
+            key = str(p.resolve())
+            if key in seen:
+                return
+            seen.add(key)
+            cassette_paths.append(p)
+
+        def _looks_like_fasta(name: str) -> bool:
+            lowered = name.lower()
+            return lowered.endswith((".fa", ".fasta", ".fna", ".fas"))
+
+        def _add_from_dir(directory: str) -> None:
+            dir_path = Path(directory).expanduser()
+            if not dir_path.exists():
+                raise SystemExit(f"--cassette-dir: directory not found: {dir_path}")
+            if not dir_path.is_dir():
+                raise SystemExit(f"--cassette-dir: expected directory but found file: {dir_path}")
+            matched = sorted(p for p in dir_path.iterdir() if p.is_file() and _looks_like_fasta(p.name))
+            if not matched:
+                raise SystemExit(f"--cassette-dir: no FASTA files found in {dir_path}")
+            for child in matched:
+                _add_cassette(child, f"--cassette-dir {dir_path}")
+
+        _add_cassette(args.cassette, "--cassette")
+        if args.cassette_list:
+            for idx, item in enumerate(args.cassette_list, start=1):
+                _add_cassette(item, f"--cassette-list[{idx}]")
+        if args.cassette_dir:
+            _add_from_dir(args.cassette_dir)
+
+        if not cassette_paths:
+            for idx, item in enumerate(cfg.inputs.cassettes, start=1):
+                _add_cassette(item, f"ag.yaml inputs.cassettes[{idx}]")
+            if cfg.inputs.cassette:
+                _add_cassette(cfg.inputs.cassette, "ag.yaml inputs.cassette")
+
+        if not cassette_paths:
+            raise SystemExit("No cassette FASTA provided: supply --cassette/--cassette-list/--cassette-dir or configure inputs.cassette(s) in ag.yaml")
+
+        multi_mode = len(cassette_paths) > 1
+
+        if multi_mode and any(val is not None for val in (args.candidates, args.raw_out, args.scores_out, args.plots, args.html)):
+            raise SystemExit("Per-output overrides (--candidates/--raw-out/--scores-out/--plots/--html) are not supported with multi-cassette mode. Use --multi-out-root instead.")
+
+        def _sanitize(name: str) -> str:
+            sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("_.")
+            return sanitized or "cassette"
+
+        def _run_single(*, cassette_path: Path, candidates: Path, raw: Path, scores: Path, plots: Path, html: Path) -> None:
+            candidates.parent.mkdir(parents=True, exist_ok=True)
+            raw.parent.mkdir(parents=True, exist_ok=True)
+            scores.parent.mkdir(parents=True, exist_ok=True)
+            html.parent.mkdir(parents=True, exist_ok=True)
+            plots.mkdir(parents=True, exist_ok=True)
+
+            if getattr(args, 'variant_type', 'insertion') == "extraction":
+                vb_ext.main([
+                    "--intron-bed", intron_bed_str,
+                    "--cassette", str(cassette_path),
+                    "--genome-fasta", genome_fasta_str,
+                    "--buffers", *buffers_args,
+                    "--stride", stride_str,
+                    "--max", max_str,
+                    "--out", str(candidates),
+                ])
+            else:
+                variant_builder.main([
+                    "--intron-bed", intron_bed_str,
+                    "--cassette", str(cassette_path),
+                    "--buffers", *buffers_args,
+                    "--stride", stride_str,
+                    "--max", max_str,
+                    "--out", str(candidates),
+                ])
+
+            scorer_call = [
+                "--config", args.config,
+                "--candidates", str(candidates),
+                "--out", str(raw),
+            ]
+            if args.modalities:
+                scorer_call.extend(["--modalities", *args.modalities])
+            if args.variant_window:
+                scorer_call.extend(["--variant-window", str(args.variant_window)])
+            scorer.main(scorer_call)
+
+            ranker.main(["--in", str(raw), "--out", str(scores)])
+
+            reporter_call = [
+                "--scores", str(scores),
+                "--pred", str(raw),
+                "--plots", str(plots),
+                "--html", str(html),
+                "--intron-bed", intron_bed_str,
+            ]
+            if getattr(args, 'transcript', None):
+                reporter_call.extend(["--transcript", args.transcript])
+            if getattr(args, 'gtf', None):
+                reporter_call.extend(["--gtf", args.gtf])
+            reporter.main(reporter_call)
+
+        if multi_mode:
+            base_root = Path(args.multi_out_root).expanduser() if args.multi_out_root else Path(cfg.io.out_dir)
+            base_root.mkdir(parents=True, exist_ok=True)
+            total = len(cassette_paths)
+            summaries = []
+            for idx, cassette_path in enumerate(cassette_paths, start=1):
+                label = _sanitize(cassette_path.stem or cassette_path.name)
+                run_root = base_root / f"{idx:02d}_{label}"
+                plots_dir = run_root / "plots"
+                print(f"[Full] ({idx}/{total}) Running cassette {cassette_path} → {run_root}")
+                _run_single(
+                    cassette_path=cassette_path,
+                    candidates=run_root / "candidates.tsv",
+                    raw=run_root / "raw.parquet",
+                    scores=run_root / "candidates.csv",
+                    plots=plots_dir,
+                    html=run_root / "report.html",
+                )
+                summaries.append((cassette_path, run_root))
+            print("[Full] Completed multi-cassette run. Outputs:")
+            for cassette_path, run_root in summaries:
+                print(f"  - {cassette_path} → {run_root}")
         else:
-            variant_builder.main([
-                "--intron-bed", args.intron_bed,
-                "--cassette", args.cassette,
-                "--buffers", *[str(x) for x in args.buffers],
-                "--stride", str(args.stride),
-                "--max", str(args.max_candidates),
-                "--out", args.candidates,
-            ])
-        # Run Scorer
-        scorer_call = [
-            "--config", args.config,
-            "--candidates", args.candidates,
-            "--out", args.raw_out,
-        ]
-        if args.modalities:
-            scorer_call.extend(["--modalities", *args.modalities])
-        if args.variant_window:
-            scorer_call.extend(["--variant-window", str(args.variant_window)])
-        scorer.main(scorer_call)
-        # Run Ranker
-        ranker.main(["--in", args.raw_out, "--out", args.scores_out])
-        # Run Reporter
-        reporter.main([
-            "--scores", args.scores_out,
-            "--pred", args.raw_out,
-            "--plots", args.plots,
-            "--html", args.html,
-            *( ["--transcript", args.transcript] if getattr(args, 'transcript', None) else [] ),
-            *( ["--gtf", args.gtf] if getattr(args, 'gtf', None) else [] ),
-            "--intron-bed", args.intron_bed,
-        ])
+            cassette_path = cassette_paths[0]
+            candidates_path = Path(args.candidates).expanduser() if args.candidates else Path(cfg.io.candidates_tsv)
+            raw_path = Path(args.raw_out).expanduser() if args.raw_out else Path(cfg.io.raw_parquet)
+            scores_path = Path(args.scores_out).expanduser() if args.scores_out else Path(cfg.io.scores_csv)
+            plots_path = Path(args.plots).expanduser() if args.plots else Path(cfg.io.plots_dir)
+            html_path = Path(args.html).expanduser() if args.html else Path(cfg.io.report_html)
+            print(f"[Full] Running cassette {cassette_path}")
+            _run_single(
+                cassette_path=cassette_path,
+                candidates=candidates_path,
+                raw=raw_path,
+                scores=scores_path,
+                plots=plots_path,
+                html=html_path,
+            )
     else:
         parser.print_help()
         return 1
