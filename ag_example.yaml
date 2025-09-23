@@ -41,6 +41,8 @@ inputs:
   # Provide defaults for CLI invocations (leave empty to supply on the command line).
   intron_bed: data/gene_intron2_hg38.bed
   cassette: data/shrna_cassette.fa
+  transcript: ENST00000325495
+  # gtf: ref/gencode.v43.annotation.gtf
   # Uncomment to run multiple cassette FASTA files by default:
   # cassettes:
   #   - data/cassettes/cassette1.fa

@@ -99,10 +99,14 @@ class InputsConfig:
         intron_bed: Path to the BED file defining the genomic interval to scan.
         cassette: Path to the FASTA file containing the insertion sequence.
         cassettes: Optional list of FASTA files for multi-cassette runs.
+        transcript: Optional transcript ID associated with the intron BED (used for plotting gene structure).
+        gtf: Optional GTF file for transcript exon structure lookup.
     """
     intron_bed: Optional[Path] = None
     cassette: Optional[Path] = None
     cassettes: List[Path] = dataclasses.field(default_factory=list)
+    transcript: Optional[str] = None
+    gtf: Optional[Path] = None
 
 
 @dataclasses.dataclass
@@ -194,6 +198,8 @@ class AppConfig:
             intron_bed=Path(inputs_raw["intron_bed"]) if inputs_raw.get("intron_bed") else None,
             cassette=Path(inputs_raw["cassette"]) if inputs_raw.get("cassette") else None,
             cassettes=[Path(p) for p in multi],
+            transcript=str(inputs_raw["transcript"]) if inputs_raw.get("transcript") else None,
+            gtf=Path(inputs_raw["gtf"]) if inputs_raw.get("gtf") else None,
         )
 
         return AppConfig(

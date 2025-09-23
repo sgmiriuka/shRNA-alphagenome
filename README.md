@@ -87,6 +87,7 @@ python -m ag_pipeline.cli Full \
   --config ag.yaml \
   --intron-bed data/gene_intron2_hg38.bed \
   --cassette-list data/cassettes/cassette1.fa data/cassettes/cassette2.fa \
+  --transcript ENST00000325495 \
   --multi-out-root ag_out/multi_batch
 ```
 
@@ -97,10 +98,11 @@ python -m ag_pipeline.cli Full \
   --config ag.yaml \
   --intron-bed data/gene_intron2_hg38.bed \
   --cassette-dir data/cassettes \
+  --transcript ENST00000325495 \
   --multi-out-root ag_out/multi_batch
 ```
 
-Each cassette FASTA must contain exactly one sequence. The CLI creates numbered subdirectories (e.g., `01_cassette-name/`) under `--multi-out-root` (defaults to `io.out_dir`) and writes that cassette’s `candidates.tsv`, `raw.parquet`, `candidates.csv`, `plots/`, and `report.html` inside. Per-output overrides like `--raw-out` or `--scores-out` are only supported for single-cassette runs.
+Each cassette FASTA must contain exactly one sequence. The CLI creates numbered subdirectories (e.g., `01_cassette-name/`) under `--multi-out-root` (defaults to `io.out_dir`) and writes that cassette’s `candidates.tsv`, `raw.parquet`, `candidates.csv`, `plots/`, and `report.html` inside. Per-output overrides like `--raw-out` or `--scores-out` are only supported for single-cassette runs. Provide `--transcript` (or set `inputs.transcript` in `ag.yaml`) so each batch also saves `gene_structure_spikes.png`.
 
 ## Individual steps (optional)
 ---------------------------
@@ -185,6 +187,8 @@ Config schema (ag.yaml):
   - `intron_bed`: Path to the interval BED to scan (any region; not restricted to introns).
   - `cassette`: Path to the insertion (e.g., shRNA cassette) FASTA (any length).
   - `cassettes`: Optional list of cassette FASTA paths for multi-cassette runs (each must contain one sequence).
+  - `transcript`: Optional transcript ID to enable gene structure plots by default.
+  - `gtf`: Optional local GTF file to avoid relying on Ensembl REST when plotting gene structure.
 - `io`:
   - `out_dir`: Base directory for outputs.
   - `make_html`: Whether to build HTML.

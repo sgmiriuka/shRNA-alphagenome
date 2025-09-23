@@ -388,7 +388,9 @@ def main(argv: List[str] | None = None) -> None:
     df = _load_candidates(cand_path)
 
     records: List[Dict] = []
-    arrays_dir = cfg.io.out_dir / "arrays"
+    out_path = Path(args.out) if args.out else cfg.io.raw_parquet
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    arrays_dir = out_path.parent / "arrays"
     arrays_dir.mkdir(parents=True, exist_ok=True)
 
     # Optional ontology terms
@@ -594,8 +596,6 @@ def main(argv: List[str] | None = None) -> None:
                 pass
 
     raw_df = pd.DataFrame.from_records(records)
-    out_path = Path(args.out) if args.out else cfg.io.raw_parquet
-    out_path.parent.mkdir(parents=True, exist_ok=True)
     raw_df.to_parquet(out_path)
     print(f"[AlphaGenomeScorer] Wrote predictions/metrics to {out_path}")
 

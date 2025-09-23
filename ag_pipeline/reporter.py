@@ -638,8 +638,18 @@ def main(argv: List[str] | None = None) -> None:
         intron_bed_path = Path(args.intron_bed) if args.intron_bed else (cfg.inputs.intron_bed if cfg.inputs.intron_bed else None)
     except Exception:
         intron_bed_path = None
-    transcript_id = args.transcript if getattr(args, 'transcript', None) else None
-    gtf_path = Path(args.gtf) if getattr(args, 'gtf', None) else None
+    transcript_id = None
+    if getattr(args, 'transcript', None):
+        transcript_id = args.transcript
+    elif getattr(cfg.inputs, 'transcript', None):
+        transcript_id = cfg.inputs.transcript
+
+    if getattr(args, 'gtf', None):
+        gtf_path = Path(args.gtf)
+    elif getattr(cfg.inputs, 'gtf', None):
+        gtf_path = Path(cfg.inputs.gtf)
+    else:
+        gtf_path = None
 
     # Try to infer transcript_id from intron_bed_path if not provided
     if transcript_id is None and intron_bed_path is not None:

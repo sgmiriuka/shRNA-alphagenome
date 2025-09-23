@@ -237,6 +237,9 @@ def main(argv=None):
             sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("_.")
             return sanitized or "cassette"
 
+        transcript_arg = getattr(args, 'transcript', None) or (cfg.inputs.transcript if cfg.inputs.transcript else None)
+        gtf_arg = getattr(args, 'gtf', None) or (str(cfg.inputs.gtf) if getattr(cfg.inputs, 'gtf', None) else None)
+
         def _run_single(*, cassette_path: Path, candidates: Path, raw: Path, scores: Path, plots: Path, html: Path) -> None:
             candidates.parent.mkdir(parents=True, exist_ok=True)
             raw.parent.mkdir(parents=True, exist_ok=True)
@@ -284,10 +287,10 @@ def main(argv=None):
                 "--html", str(html),
                 "--intron-bed", intron_bed_str,
             ]
-            if getattr(args, 'transcript', None):
-                reporter_call.extend(["--transcript", args.transcript])
-            if getattr(args, 'gtf', None):
-                reporter_call.extend(["--gtf", args.gtf])
+            if transcript_arg:
+                reporter_call.extend(["--transcript", transcript_arg])
+            if gtf_arg:
+                reporter_call.extend(["--gtf", gtf_arg])
             reporter.main(reporter_call)
 
         if multi_mode:
